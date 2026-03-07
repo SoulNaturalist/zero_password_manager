@@ -10,6 +10,7 @@ import '../widgets/themed_widgets.dart';
 import '../main.dart'; // Импортируйте routeObserver
 import 'edit_password_screen.dart';
 import '../config/app_config.dart';
+import '../utils/api_service.dart';
 
 class PasswordsScreen extends StatefulWidget {
   const PasswordsScreen({super.key});
@@ -67,8 +68,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
 
-      final response = await http.get(
-        Uri.parse(AppConfig.passwordsUrl),
+      final response = await ApiService.get(
+        AppConfig.passwordsUrl,
         headers: {'Authorization': 'Bearer $token'},
       );
 

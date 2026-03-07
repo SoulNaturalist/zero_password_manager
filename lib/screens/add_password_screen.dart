@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../config/app_config.dart';
+import '../utils/api_service.dart';
 import '../utils/password_history_service.dart';
 
 class AddPasswordScreen extends StatefulWidget {
@@ -57,8 +58,8 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
 
-      final response = await http.get(
-        Uri.parse(AppConfig.generatePasswordUrl),
+      final response = await ApiService.get(
+        AppConfig.generatePasswordUrl,
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -112,8 +113,8 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
         fullUrl = 'https://$site';
       }
 
-      final response = await http.post(
-        Uri.parse(AppConfig.passwordsUrl),
+      final response = await ApiService.post(
+        AppConfig.passwordsUrl,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
+import '../widgets/otp_input_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -45,8 +46,25 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = json.decode(response.body);
 
       if (response.statusCode == 200) {
+        if (data['two_fa_required'] == true) {
+          // Показываем ввод OTP
+          if (!mounted) return;
+          final String? otpCode = await showDialog<String>(
+            context: context,
+            builder: (context) => const OTPInputDialog(),
+          );
+
+          if (otpCode != null) {
+            // Повторяем логин с OTP в заголовке
+            await _loginWithOTP(login, password, otpCode);
+          } else {
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('token', data['token']);
+        await prefs.setString('token', data['access_token']); // Backend returns access_token
         
         // Проверяем, установлен ли PIN-код
         final pinCode = prefs.getString('pin_code');
@@ -68,6 +86,45 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loginWithOTP(String login, String password, String otp) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.post(
+        Uri.parse(AppConfig.loginUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OTP': otp,
+        },
+        body: json.encode({'login': login, 'password': password}),
+      );
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', data['access_token']);
+        
+        if (!mounted) return;
+        final pinCode = prefs.getString('pin_code');
+        if (pinCode != null) {
+          Navigator.pushReplacementNamed(context, '/pin');
+        } else {
+          Navigator.pushReplacementNamed(context, '/setup-pin');
+        }
+      } else {
+        setState(() {
+          _errorMessage = data['detail'] ?? 'Неверный код OTP';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Ошибка подключения';
+      });
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 

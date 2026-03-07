@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
+import '../widgets/two_factor_setup_dialog.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -47,11 +48,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 201) {
-        // Успех
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Регистрация успешна')),
+        // Успех - показываем настройку 2FA
+        if (!mounted) return;
+        
+        final bool? confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => TwoFactorSetupDialog(
+            userId: data['id'],
+            login: data['login'],
+          ),
         );
-        Navigator.pushNamed(context, '/login');
+
+        if (confirmed == true) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Регистрация и 2FA успешно настроены')),
+          );
+          Navigator.pushReplacementNamed(context, '/login');
+        }
       } else {
         setState(() {
           _errorMessage = data['error'] ?? 'Ошибка регистрации';

@@ -43,6 +43,8 @@ Future<void> _loadSavedTheme() async {
 
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 class PasswordManagerApp extends StatefulWidget {
   const PasswordManagerApp({super.key});
 
@@ -54,6 +56,7 @@ class _PasswordManagerAppState extends State<PasswordManagerApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Password Manager',
       theme: ThemeData.dark().copyWith(

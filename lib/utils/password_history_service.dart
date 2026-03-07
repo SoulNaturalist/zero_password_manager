@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../utils/api_service.dart';
 
 class PasswordHistoryService {
   // Добавить запись в историю паролей
@@ -50,8 +51,8 @@ class PasswordHistoryService {
         return [];
       }
 
-      final response = await http.get(
-        Uri.parse(AppConfig.passwordHistoryUrl),
+      final response = await ApiService.get(
+        AppConfig.passwordHistoryUrl,
         headers: {
           'Authorization': 'Bearer $token',
         },
