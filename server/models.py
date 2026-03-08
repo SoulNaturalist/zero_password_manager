@@ -17,7 +17,8 @@ class User(Base):
     last_otp_ts = Column(Integer, default=0) # Protect against replay attacks
     
     history = relationship("PasswordHistory", back_populates="user")
-    
+    passwords = relationship("Password", back_populates="owner")
+
 
 class Password(Base):
     __tablename__ = "passwords"

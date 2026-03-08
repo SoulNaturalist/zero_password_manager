@@ -6,8 +6,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
-from cryptography.hazmat.backends import default_backend
+from argon2.low_level import hash_secret_raw, Type as Argon2Type
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -58,15 +57,15 @@ def generate_salt() -> str:
 
 def derive_key(password: str, salt_b64: str) -> bytes:
     salt = base64.b64decode(salt_b64)
-    kdf = Argon2id(
+    return hash_secret_raw(
+        secret=password.encode(),
         salt=salt,
-        length=ARGON2_HASH_LEN,
         time_cost=ARGON2_TIME_COST,
         memory_cost=ARGON2_MEMORY_COST,
         parallelism=ARGON2_PARALLELISM,
-        backend=default_backend(),
+        hash_len=ARGON2_HASH_LEN,
+        type=Argon2Type.ID,
     )
-    return kdf.derive(password.encode())
 
 
 def encrypt_data(plaintext: str, key: bytes) -> str:
@@ -107,13 +106,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme),
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        login: str = payload.get("sub")
-        if login is None:
+        user_id: str = payload.get("sub")
+        if user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
 
-    user = db.query(models.User).filter(models.User.login == login).first()
+    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
     if user is None:
         raise credentials_exception
 
