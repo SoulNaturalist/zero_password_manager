@@ -5,11 +5,13 @@
 
 ---
 
-## 🎬 Demo
+## 🎬 Demo — Flutter UI Preview
 
 ![Zero Password Manager Demo](assets/demo.gif)
 
-> Full workflow: Registration → 2FA Setup → Login → Create Entries → List Vault → Audit Log
+> **UI walkthrough (Flutter app):**
+> Splash → Login → Sign Up → 2FA Setup → PIN entry → Password Vault → Add Entry → Edit Entry → Settings
+> + Theme showcase: **Midnight Dark** · **Cyberpunk** (neon cyan/magenta) · **Glassmorphism** (blur glass cards)
 
 Unlike traditional password managers, **Zero Password Manager does NOT use cloud storage**.  
 Your passwords and seed phrases are stored **only on your own server**, ensuring **maximum privacy, security, and ownership of your data**.
