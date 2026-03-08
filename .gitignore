@@ -100,6 +100,11 @@ env.local_alt
 flutter_01.log
 *.log
 
+# SQLite database (runtime data)
+*.db
+*.sqlite
+*.sqlite3
+
 # License files
 com.android.builder.sdk.LicenceNotAccepted*
 

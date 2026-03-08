@@ -1,7 +1,17 @@
-# 🔐 Zero Password Manager  
+# 🔐 Zero Password Manager
 ### Private • Self-Hosted • No Cloud Password Manager Built With Flutter
 
 **Zero Password Manager** is a **privacy-first password manager built with Flutter** that gives you **full control over your sensitive data**.
+
+---
+
+## 🎬 Demo — Flutter UI Preview
+
+![Zero Password Manager Demo](assets/demo.gif)
+
+> **UI walkthrough (Flutter app):**
+> Splash → Login → Sign Up → 2FA Setup → PIN entry → Password Vault → Add Entry → Edit Entry → Settings
+> + Theme showcase: **Midnight Dark** · **Cyberpunk** (neon cyan/magenta) · **Glassmorphism** (blur glass cards)
 
 Unlike traditional password managers, **Zero Password Manager does NOT use cloud storage**.  
 Your passwords and seed phrases are stored **only on your own server**, ensuring **maximum privacy, security, and ownership of your data**.
