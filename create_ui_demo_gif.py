@@ -1,1120 +1,518 @@
 #!/usr/bin/env python3
-"""
-Flutter UI Demo GIF Generator
-Recreates the Zero Password Manager app screens as pixel-accurate mockups
-using exact colors, layouts and design from lib/theme/colors.dart and screen files.
-"""
+"""Beautiful Flutter UI Demo GIF — v2 (uses real logo + bg images)."""
+import os, math
+import numpy as np
+from PIL import (Image, ImageDraw, ImageFont, ImageFilter,
+                 ImageChops, ImageEnhance)
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
-import math
-import os
+BASE    = os.path.dirname(os.path.abspath(__file__))
+LOGO    = os.path.join(BASE, "lib/assets/raw.png")
+BG_CYB  = os.path.join(BASE, "assets/images/backgrounds/cyberpunk_bg.png")
+BG_GLASS= os.path.join(BASE, "assets/images/backgrounds/glassmorphism_bg.jpg")
+FD      = "/usr/share/fonts/truetype/dejavu"
+def F(s,b=False):
+    return ImageFont.truetype(f"{FD}/DejaVuSans-Bold.ttf" if b else f"{FD}/DejaVuSans.ttf", s)
 
-# ─── FONTS ───────────────────────────────────────────────────────────────────
-FONT_DIR = "/usr/share/fonts/truetype/dejavu"
-FONT_REGULAR = ImageFont.truetype(f"{FONT_DIR}/DejaVuSans.ttf", 16)
-FONT_BOLD    = ImageFont.truetype(f"{FONT_DIR}/DejaVuSans-Bold.ttf", 16)
+def dim(c,f): return tuple(max(0,int(x*f)) for x in c)
+def bri(c,f): return tuple(min(255,int(x*f)) for x in c)
+def mix(a,b,t): return tuple(int(a[i]*(1-t)+b[i]*t) for i in range(3))
 
-def font(size, bold=False):
-    path = f"{FONT_DIR}/DejaVuSans-Bold.ttf" if bold else f"{FONT_DIR}/DejaVuSans.ttf"
-    return ImageFont.truetype(path, size)
+# ── Themes ─────────────────────────────────────────────────────────────────
+class D:
+    bg=(26,20,46);btn=(93,82,210);inp=(34,25,55);text=(255,255,255)
+    accent=(139,126,216);sec=(64,58,92);sub=(130,120,175);appbar=(18,13,34);err=(231,76,60)
+    name="Тёмная"
+class C:
+    bg=(10,10,10);btn=(0,235,235);inp=(20,20,30);text=(0,235,235)
+    accent=(255,0,128);sec=(40,40,60);sub=(0,170,170);appbar=(5,5,10);err=(255,0,64)
+    name="Cyberpunk"
+class G:
+    bg=(30,30,46);btn=(137,180,250);inp=(49,50,68);text=(205,214,244)
+    accent=(180,190,254);sec=(60,62,85);sub=(147,153,178);appbar=(20,20,34);err=(243,139,168)
+    name="Glassmorphism"
 
-# ─── THEMES ──────────────────────────────────────────────────────────────────
-THEMES = {
-    "dark": {
-        "bg":      (26, 20, 46),
-        "button":  (93, 82, 210),
-        "input":   (34, 25, 55),
-        "text":    (255, 255, 255),
-        "accent":  (139, 126, 216),
-        "surface": (42, 31, 61),
-        "secondary":(64, 58, 92),
-        "subtext": (160, 150, 200),
-        "error":   (231, 76, 60),
-        "appbar":  (20, 14, 38),
-        "name":    "Тёмная",
-    },
-    "cyberpunk": {
-        "bg":      (10, 10, 10),
-        "button":  (0, 255, 255),
-        "input":   (26, 26, 26),
-        "text":    (0, 255, 255),
-        "accent":  (255, 0, 128),
-        "surface": (21, 21, 21),
-        "secondary":(128, 0, 255),
-        "subtext": (0, 200, 200),
-        "error":   (255, 0, 64),
-        "appbar":  (5, 5, 5),
-        "name":    "Cyberpunk",
-    },
-    "glass": {
-        "bg":      (30, 30, 46),
-        "button":  (137, 180, 250),
-        "input":   (49, 50, 68),
-        "text":    (205, 214, 244),
-        "accent":  (180, 190, 254),
-        "surface": (24, 24, 37),
-        "secondary":(147, 153, 178),
-        "subtext": (147, 153, 178),
-        "error":   (243, 139, 168),
-        "appbar":  (24, 24, 37),
-        "name":    "Glassmorphism",
-    },
-}
+# ── Canvas ──────────────────────────────────────────────────────────────────
+GW,GH = 480,980
+PW,PH = 420,900
+PX,PY = (GW-PW)//2,(GH-PH)//2
+SW,SH = PW-20,PH-20
+SX,SY = PX+10,PY+10
+SCR   = 38
+STATH = 32
 
-# ─── CANVAS DIMENSIONS ───────────────────────────────────────────────────────
-GIF_W, GIF_H = 520, 1000     # total GIF frame size
-PHONE_W, PHONE_H = 420, 910  # phone outline
-PHONE_X = (GIF_W - PHONE_W) // 2
-PHONE_Y = (GIF_H - PHONE_H) // 2
-SCREEN_X = PHONE_X + 10
-SCREEN_Y = PHONE_Y + 10
-SCREEN_W = PHONE_W - 20
-SCREEN_H = PHONE_H - 20
-CORNER_R = 36
-
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-def hex2rgb(h):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-
-def alpha_blend(c1, c2, t):
-    return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
-
-def draw_rounded_rect(draw, xy, r, fill=None, outline=None, width=1):
-    x0, y0, x1, y1 = xy
-    if fill:
-        draw.rectangle([x0+r, y0, x1-r, y1], fill=fill)
-        draw.rectangle([x0, y0+r, x1, y1-r], fill=fill)
-        draw.ellipse([x0, y0, x0+2*r, y0+2*r], fill=fill)
-        draw.ellipse([x1-2*r, y0, x1, y0+2*r], fill=fill)
-        draw.ellipse([x0, y1-2*r, x0+2*r, y1], fill=fill)
-        draw.ellipse([x1-2*r, y1-2*r, x1, y1], fill=fill)
-    if outline:
-        draw.arc([x0, y0, x0+2*r, y0+2*r], 180, 270, fill=outline, width=width)
-        draw.arc([x1-2*r, y0, x1, y0+2*r], 270, 360, fill=outline, width=width)
-        draw.arc([x0, y1-2*r, x0+2*r, y1], 90, 180, fill=outline, width=width)
-        draw.arc([x1-2*r, y1-2*r, x1, y1], 0, 90, fill=outline, width=width)
-        draw.line([x0+r, y0, x1-r, y0], fill=outline, width=width)
-        draw.line([x0+r, y1, x1-r, y1], fill=outline, width=width)
-        draw.line([x0, y0+r, x0, y1-r], fill=outline, width=width)
-        draw.line([x1, y0+r, x1, y1-r], fill=outline, width=width)
-
-def draw_gradient_rect(img, xy, c1, c2, vertical=True):
-    x0, y0, x1, y1 = xy
-    draw = ImageDraw.Draw(img)
-    if vertical:
-        for y in range(y0, y1+1):
-            t = (y - y0) / max(y1 - y0, 1)
-            c = alpha_blend(c1, c2, t)
-            draw.line([(x0, y), (x1, y)], fill=c)
-    else:
-        for x in range(x0, x1+1):
-            t = (x - x0) / max(x1 - x0, 1)
-            c = alpha_blend(c1, c2, t)
-            draw.line([(x, y0), (x, y1)], fill=c)
-
-def draw_gradient_rounded(img, xy, r, c1, c2):
-    """Draw a rounded rectangle with vertical gradient."""
-    tmp = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    x0, y0, x1, y1 = xy
-    for y in range(y0, y1+1):
-        t = (y - y0) / max(y1 - y0, 1)
-        c = alpha_blend(c1, c2, t)
-        tmp_draw = ImageDraw.Draw(tmp)
-        # horizontal strip
-        lx0, lx1 = x0, x1
-        if y < y0 + r:
-            dr = r - (y - y0)
-            angle = math.acos(min(dr / r, 1.0))
-            dx = int(r * math.sin(angle))
-            lx0 = x0 + r - dx
-            lx1 = x1 - r + dx
-        elif y > y1 - r:
-            dr = r - (y1 - y)
-            angle = math.acos(min(dr / r, 1.0))
-            dx = int(r * math.sin(angle))
-            lx0 = x0 + r - dx
-            lx1 = x1 - r + dx
-        if lx1 > lx0:
-            tmp_draw.line([(lx0, y), (lx1, y)], fill=c + (255,))
-    img.paste(tmp, mask=tmp.split()[3])
-
-def centered_text(draw, y, text, fnt, color, width=SCREEN_W, ox=SCREEN_X):
-    bbox = draw.textbbox((0, 0), text, font=fnt)
-    tw = bbox[2] - bbox[0]
-    x = ox + (width - tw) // 2
-    draw.text((x, y), text, font=fnt, fill=color)
-    return bbox[3] - bbox[1]  # return height
-
-def text_h(draw, text, fnt):
-    bbox = draw.textbbox((0, 0), text, font=fnt)
-    return bbox[3] - bbox[1]
-
-def text_w(draw, text, fnt):
-    bbox = draw.textbbox((0, 0), text, font=fnt)
-    return bbox[2] - bbox[0]
-
-# ─── PHONE FRAME ─────────────────────────────────────────────────────────────
-
-def make_base_frame(bg_color):
-    """Create a frame with phone outline and background."""
-    img = Image.new("RGB", (GIF_W, GIF_H), (18, 18, 24))  # outer bg
-    draw = ImageDraw.Draw(img)
-
-    # Phone body gradient
-    draw_gradient_rect(img, [PHONE_X, PHONE_Y, PHONE_X+PHONE_W, PHONE_Y+PHONE_H],
-                       (45, 45, 55), (30, 30, 40))
-
-    # Screen background
-    draw_gradient_rect(img, [SCREEN_X, SCREEN_Y, SCREEN_X+SCREEN_W, SCREEN_Y+SCREEN_H],
-                       bg_color, tuple(max(0, c-15) for c in bg_color))
-
-    # Phone frame border
-    draw_rounded_rect(draw, [PHONE_X, PHONE_Y, PHONE_X+PHONE_W, PHONE_Y+PHONE_H],
-                      CORNER_R+2, outline=(80, 80, 100), width=3)
-
-    # Screen corners clip (subtle inner rounding)
-    draw_rounded_rect(draw, [SCREEN_X, SCREEN_Y, SCREEN_X+SCREEN_W, SCREEN_Y+SCREEN_H],
-                      CORNER_R, outline=(50, 50, 65), width=1)
-
-    # Notch (pill shaped, top center)
-    notch_w, notch_h = 100, 20
-    nx = SCREEN_X + (SCREEN_W - notch_w) // 2
-    ny = SCREEN_Y + 4
-    draw_rounded_rect(draw, [nx, ny, nx+notch_w, ny+notch_h], 10, fill=(18, 18, 24))
-
-    # Side button (right)
-    draw.rectangle([PHONE_X+PHONE_W-2, PHONE_Y+120, PHONE_X+PHONE_W+3, PHONE_Y+180],
-                   fill=(60, 60, 75))
-    # Volume buttons (left)
-    draw.rectangle([PHONE_X-3, PHONE_Y+100, PHONE_X+2, PHONE_Y+140], fill=(60, 60, 75))
-    draw.rectangle([PHONE_X-3, PHONE_Y+155, PHONE_X+2, PHONE_Y+195], fill=(60, 60, 75))
-
-    return img
-
-def draw_status_bar(draw, theme):
-    """Draw status bar at top of screen."""
-    sy = SCREEN_Y + 8
-    # Time
-    draw.text((SCREEN_X + 16, sy), "22:10",
-              font=font(13, bold=True), fill=theme["text"])
-    # Signal dots
-    sx = SCREEN_X + SCREEN_W - 80
-    for i in range(4):
-        h = 6 + i * 3
-        c = theme["text"] if i < 3 else theme["secondary"]
-        draw.rectangle([sx + i*10, sy+12-h, sx+i*10+6, sy+12], fill=c)
-    # WiFi
-    draw.text((SCREEN_X + SCREEN_W - 40, sy), "WiFi",
-              font=font(11), fill=theme["text"])
-    # Battery
-    bx = SCREEN_X + SCREEN_W - 18
-    draw.rectangle([bx, sy, bx+14, sy+9], outline=theme["text"], width=1)
-    draw.rectangle([bx+14, sy+3, bx+16, sy+6], fill=theme["text"])
-    draw.rectangle([bx+1, sy+1, bx+11, sy+8], fill=theme["button"])
-
-STATUS_H = 30  # height of status bar area
-
-# ─── SCREEN RENDERERS ────────────────────────────────────────────────────────
-
-def draw_input_field(draw, img, x, y, w, h, hint, theme, value=None, is_password=False):
-    """Draw a text input field."""
-    bg = theme["input"]
-    border = theme["secondary"]
-    draw_rounded_rect(draw, [x, y, x+w, y+h], 12, fill=bg, outline=border, width=1)
-    txt = value if value else hint
-    color = theme["text"] if value else theme["subtext"]
-    if is_password and value:
-        txt = "•" * len(value)
-    draw.text((x+16, y + (h - 18)//2), txt, font=font(16), fill=color)
-
-def draw_button(draw, img, x, y, w, h, label, theme):
-    """Draw a primary button with gradient."""
-    bc = theme["button"]
-    c1 = bc
-    c2 = tuple(max(0, c-40) for c in bc)
-    draw_gradient_rounded(img, [x, y, x+w, y+h], 14, c1, c2)
-    # Subtle overlay
-    draw_rounded_rect(draw, [x, y, x+w, y+h], 14,
-                      outline=tuple(min(255, c+40) for c in bc), width=1)
-    # Text
-    f = font(18, bold=True)
-    bbox = draw.textbbox((0, 0), label, font=f)
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    tx = x + (w - tw) // 2
-    ty = y + (h - th) // 2
-    draw.text((tx, ty), label, font=f, fill=(255, 255, 255))
-
-def draw_icon_circle(draw, x, y, r, bg_color, icon_char, icon_color=(255,255,255)):
-    """Draw a circle icon container."""
-    draw.ellipse([x-r, y-r, x+r, y+r], fill=bg_color)
-    f = font(r, bold=True)
-    bbox = draw.textbbox((0, 0), icon_char, font=f)
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    draw.text((x - tw//2, y - th//2 - 2), icon_char, font=f, fill=icon_color)
-
-def draw_icon_box(draw, img, cx, cy, size, theme, icon_char):
-    """Draw a gradient square icon container (like Flutter's BoxDecoration)."""
-    half = size // 2
-    x0, y0 = cx - half, cy - half
-    x1, y1 = cx + half, cy + half
-    bc = theme["button"]
-    c1 = tuple(min(255, c+30) for c in bc)
-    c2 = tuple(max(0, c-20) for c in bc)
-    draw_gradient_rounded(img, [x0, y0, x1, y1], 20, c1, c2)
-    # Glow effect
-    draw_rounded_rect(draw, [x0, y0, x1, y1], 20,
-                      outline=tuple(min(255, c+80) for c in bc) + (100,), width=1)
-    f = font(size // 2, bold=True)
-    bbox = draw.textbbox((0, 0), icon_char, font=f)
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    draw.text((cx - tw//2, cy - th//2 - 2), icon_char, font=f, fill=(255, 255, 255))
-
-def draw_appbar(draw, img, title, theme, show_back=False):
-    """Draw app bar at top of screen content."""
-    bar_y = SCREEN_Y + STATUS_H
-    bar_h = 52
-    bar_bg = theme["appbar"]
-    # AppBar background
-    draw.rectangle([SCREEN_X, bar_y, SCREEN_X+SCREEN_W, bar_y+bar_h], fill=bar_bg)
-    # Subtle bottom border
-    draw.line([SCREEN_X, bar_y+bar_h, SCREEN_X+SCREEN_W, bar_y+bar_h],
-              fill=theme["secondary"], width=1)
-    if show_back:
-        draw.text((SCREEN_X+16, bar_y+14), "<", font=font(22, bold=True), fill=theme["button"])
-    f = font(20, bold=True)
-    bbox = draw.textbbox((0, 0), title, font=f)
-    tw = bbox[2] - bbox[0]
-    tx = SCREEN_X + (SCREEN_W - tw) // 2
-    draw.text((tx, bar_y+14), title, font=f, fill=theme["accent"])
-    return bar_y + bar_h  # returns Y where content starts
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 1: SPLASH
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_splash(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    draw_status_bar(draw, theme)
-
-    cy = SCREEN_Y + SCREEN_H // 2
-
-    # Large logo box
-    logo_size = 120
-    lx = SCREEN_X + SCREEN_W // 2
-    ly = cy - 50
-    draw_icon_box(draw, img, lx, ly, logo_size, theme, "Z")
-
-    # Neon glow effect around logo
-    bc = theme["button"]
-    for radius in [70, 80, 90]:
-        alpha = max(0, 30 - (radius - 60))
-        draw.ellipse(
-            [lx-radius, ly-radius, lx+radius, ly+radius],
-            outline=bc + (alpha,) if len(bc) == 3 else bc,
-        )
-
-    # "ZERO" title
-    y = ly + logo_size // 2 + 24
-    f = font(52, bold=True)
-    bbox = draw.textbbox((0, 0), "ZERO", font=f)
-    tw = bbox[2] - bbox[0]
-    tx = SCREEN_X + (SCREEN_W - tw) // 2
-    draw.text((tx+2, y+2), "ZERO", font=f, fill=tuple(max(0, c-80) for c in bc))  # shadow
-    draw.text((tx, y), "ZERO", font=f, fill=bc)
-
-    # Subtitle
-    y += 60
-    centered_text(draw, y, "Менеджер паролей", font(16), theme["subtext"])
-
-    # Animated dots (static)
-    dot_y = y + 60
+# ── Numpy helpers ────────────────────────────────────────────────────────────
+def vgrad(c1,c2,w,h):
+    a=np.zeros((h,w,3),np.uint8)
     for i in range(3):
-        dx = SCREEN_X + SCREEN_W//2 - 20 + i * 20
-        c = theme["button"] if i == 1 else theme["secondary"]
-        draw.ellipse([dx-5, dot_y-5, dx+5, dot_y+5], fill=c)
+        a[:,:,i]=np.linspace(c1[i],c2[i],h,dtype=np.float32)[:,None]
+    return a
 
-    return img
+def dgrad(c1,c2,c3,w,h):
+    a=np.zeros((h,w,3),np.uint8)
+    for y in range(h):
+        t=y/(h-1)
+        if t<0.5: c=mix(c1,c2,t*2)
+        else:     c=mix(c2,c3,(t-0.5)*2)
+        a[y,:]=c
+    return a
 
+# ── Rounded rect mask ───────────────────────────────────────────────────────
+def rrmask(w,h,r,aa=3):
+    big=Image.new("L",(w*aa,h*aa),0)
+    ImageDraw.Draw(big).rounded_rectangle([0,0,w*aa-1,h*aa-1],radius=r*aa,fill=255)
+    return big.resize((w,h),Image.LANCZOS)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 2: LOGIN
-# ═══════════════════════════════════════════════════════════════════════════════
+def rrpaste(canvas,img_rgba,x,y):
+    """Paste RGBA image with its own alpha."""
+    canvas.paste(img_rgba.convert("RGB"),(x,y),img_rgba.split()[3])
 
-def screen_login(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    draw_status_bar(draw, theme)
+# ── Phone frame ─────────────────────────────────────────────────────────────
+def phone_frame(screen):
+    frame=Image.new("RGB",(GW,GH),(12,12,18))
+    # Body
+    body_a=vgrad((54,54,64),(36,36,46),PW,PH)
+    body=Image.fromarray(body_a)
+    body_rgba=body.convert("RGBA")
+    body_rgba.putalpha(rrmask(PW,PH,44))
+    rrpaste(frame,body_rgba,PX,PY)
+    d=ImageDraw.Draw(frame)
+    d.rounded_rectangle([PX,PY,PX+PW,PY+PH],radius=44,outline=(76,76,92),width=2)
+    # Buttons
+    d.rounded_rectangle([PX+PW-1,PY+130,PX+PW+4,PY+195],radius=2,fill=(62,62,74))
+    d.rounded_rectangle([PX-4,PY+110,PX+1,PY+155],radius=2,fill=(62,62,74))
+    d.rounded_rectangle([PX-4,PY+165,PX+1,PY+210],radius=2,fill=(62,62,74))
+    # Screen
+    scr_rgba=screen.convert("RGBA")
+    scr_rgba.putalpha(rrmask(SW,SH,SCR))
+    rrpaste(frame,scr_rgba,SX,SY)
+    d.rounded_rectangle([SX,SY,SX+SW,SY+SH],radius=SCR,outline=(55,55,70),width=1)
+    # Notch
+    nx=SX+(SW-88)//2; ny=SY+5
+    d.rounded_rectangle([nx,ny,nx+88,ny+18],radius=9,fill=(12,12,18))
+    d.ellipse([nx+72,ny+4,nx+84,ny+14],fill=(22,22,30))
+    d.ellipse([nx+75,ny+7,nx+81,ny+11],fill=(8,8,14),outline=(28,28,38),width=1)
+    return frame
 
-    content_y = SCREEN_Y + STATUS_H + 40
-    cx = SCREEN_X + SCREEN_W // 2
+# ── Screen helpers ───────────────────────────────────────────────────────────
+def ns(c): return Image.new("RGB",(SW,SH),c)
 
-    # Icon box
-    draw_icon_box(draw, img, cx, content_y + 40, 80, theme, "S")  # Security shield
-
-    # "ZERO" title
-    y = content_y + 100
-    f_big = font(48, bold=True)
-    bbox = draw.textbbox((0, 0), "ZERO", font=f_big)
-    tw = bbox[2] - bbox[0]
-    tx = SCREEN_X + (SCREEN_W - tw) // 2
-    bc = theme["button"]
-    draw.text((tx+2, y+2), "ZERO", font=f_big, fill=tuple(max(0, c-60) for c in bc))
-    draw.text((tx, y), "ZERO", font=f_big, fill=bc)
-
-    # Subtitle
-    y += 60
-    centered_text(draw, y, "Менеджер паролей", font(16), theme["subtext"])
-
-    # Input fields
-    field_x = SCREEN_X + 24
-    field_w = SCREEN_W - 48
-    field_h = 52
-    y += 40
-
-    draw_input_field(draw, img, field_x, y, field_w, field_h, "Логин", theme,
-                     value="user@example.com")
-    y += field_h + 14
-    draw_input_field(draw, img, field_x, y, field_w, field_h, "Пароль", theme,
-                     value="mypassword123", is_password=True)
-    y += field_h + 20
-
-    # Login button
-    draw_button(draw, img, field_x, y, field_w, 52, "Войти", theme)
-    y += 64
-
-    # Link
-    link_text = "Нет аккаунта? Зарегистрироваться"
-    centered_text(draw, y, link_text, font(14), theme["accent"])
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 3: SIGNUP
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_signup(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    draw_status_bar(draw, theme)
-
-    content_y = SCREEN_Y + STATUS_H + 40
-    cx = SCREEN_X + SCREEN_W // 2
-
-    # Icon box (person_add)
-    draw_icon_box(draw, img, cx, content_y + 40, 80, theme, "+U")
-
-    # "ZERO" title
-    y = content_y + 100
-    f_big = font(48, bold=True)
-    bbox = draw.textbbox((0, 0), "ZERO", font=f_big)
-    tw = bbox[2] - bbox[0]
-    tx = SCREEN_X + (SCREEN_W - tw) // 2
-    bc = theme["button"]
-    draw.text((tx+2, y+2), "ZERO", font=f_big, fill=tuple(max(0, c-60) for c in bc))
-    draw.text((tx, y), "ZERO", font=f_big, fill=bc)
-
-    # Subtitle
-    y += 60
-    centered_text(draw, y, "Создание аккаунта", font(16), theme["subtext"])
-
-    # Fields
-    field_x = SCREEN_X + 24
-    field_w = SCREEN_W - 48
-    field_h = 52
-    y += 40
-
-    draw_input_field(draw, img, field_x, y, field_w, field_h, "Логин", theme,
-                     value="new_user")
-    y += field_h + 14
-    draw_input_field(draw, img, field_x, y, field_w, field_h, "Пароль", theme,
-                     value="securepass", is_password=True)
-    y += field_h + 20
-
-    draw_button(draw, img, field_x, y, field_w, 52, "Зарегистрироваться", theme)
-    y += 64
-
-    centered_text(draw, y, "Уже есть аккаунт? Войти", font(14), theme["accent"])
-
-    # 2FA setup hint card
-    y += 40
-    card_x = field_x
-    card_w = field_w
-    card_h = 80
-    draw_rounded_rect(draw, [card_x, y, card_x+card_w, y+card_h], 12,
-                      fill=tuple(c // 4 for c in theme["button"]),
-                      outline=tuple(c // 2 for c in theme["button"]), width=1)
-    draw.text((card_x+16, y+12), "2FA", font=font(14, bold=True), fill=theme["button"])
-    draw.text((card_x+16, y+32), "Двухфакторная аутентификация", font=font(13), fill=theme["subtext"])
-    draw.text((card_x+16, y+50), "будет настроена после регистрации", font=font(13), fill=theme["subtext"])
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 4: 2FA SETUP
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_2fa_setup(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    content_y = draw_appbar(draw, img, "Настройка 2FA", theme, show_back=True)
-
-    cx = SCREEN_X + SCREEN_W // 2
-    y = content_y + 20
-
-    centered_text(draw, y, "Отсканируйте QR-код", font(18, bold=True), theme["text"])
-    y += 30
-    centered_text(draw, y, "в приложении Google Authenticator", font(14), theme["subtext"])
-
-    # QR code placeholder (grid)
-    y += 30
-    qr_size = 200
-    qx = cx - qr_size // 2
-    qy = y
-    draw_rounded_rect(draw, [qx-4, qy-4, qx+qr_size+4, qy+qr_size+4], 8,
-                      fill=(255, 255, 255))
-    # QR pattern
-    cell = qr_size // 20
-    bc = theme["button"]
-    for row in range(20):
-        for col in range(20):
-            # Finder patterns in corners
-            is_finder = (
-                (row < 7 and col < 7) or
-                (row < 7 and col > 12) or
-                (row > 12 and col < 7)
-            )
-            # Random-ish data dots
-            is_data = (row + col * 3 + row * col) % 3 == 0
-            if is_finder or is_data:
-                cx2 = qx + col * cell
-                cy2 = qy + row * cell
-                draw.rectangle([cx2+1, cy2+1, cx2+cell-1, cy2+cell-1], fill=(10, 10, 20))
-
-    # Finder pattern corners (white squares inside)
-    for (fr, fc) in [(1,1),(1,14),(14,1)]:
-        draw.rectangle([qx+fc*cell+cell, qy+fr*cell+cell,
-                        qx+fc*cell+5*cell, qy+fr*cell+5*cell], fill=(255,255,255))
-        draw.rectangle([qx+fc*cell+2*cell, qy+fr*cell+2*cell,
-                        qx+fc*cell+4*cell, qy+fr*cell+4*cell], fill=(10,10,20))
-
-    y += qr_size + 24
-
-    # Manual key
-    centered_text(draw, y, "Или введите ключ вручную:", font(13), theme["subtext"])
-    y += 22
-    secret = "JBSWY3DPEHPK3PXP"
-    f_mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 15)
-    bbox = draw.textbbox((0,0), secret, font=f_mono)
-    tw = bbox[2]-bbox[0]
-    tx = SCREEN_X + (SCREEN_W - tw) // 2
-    draw.text((tx, y), secret, font=f_mono, fill=theme["accent"])
-
-    y += 30
-    field_x = SCREEN_X + 24
-    field_w = SCREEN_W - 48
-    draw_input_field(draw, img, field_x, y, field_w, 52, "Введите код из приложения", theme)
-    y += 66
-
-    draw_button(draw, img, field_x, y, field_w, 52, "Подтвердить", theme)
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 5: PIN
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_pin(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    draw_status_bar(draw, theme)
-
-    cx = SCREEN_X + SCREEN_W // 2
-    cy = SCREEN_Y + SCREEN_H // 2 - 60
-
-    # Lock icon box
-    draw_icon_box(draw, img, cx, cy - 80, 80, theme, "[]")  # lock
-
-    # Title
-    centered_text(draw, cy - 20, "Введите PIN-код", font(26, bold=True), theme["text"])
-    centered_text(draw, cy + 14, "Для доступа к приложению", font(15), theme["subtext"])
-
-    # 4 PIN input boxes
-    box_size = 60
-    gap = 16
-    total_w = 4 * box_size + 3 * gap
-    start_x = SCREEN_X + (SCREEN_W - total_w) // 2
-    box_y = cy + 55
-    bc = theme["button"]
-
+def status(d,th):
+    d.text((14,10),"22:10",font=F(13,True),fill=th.text)
+    bx=SW-36
+    d.rectangle([bx,10,bx+26,22],outline=th.text,width=1)
+    d.rectangle([bx+26,13,bx+29,19],fill=th.text)
+    d.rectangle([bx+1,11,bx+21,21],fill=th.btn)
     for i in range(4):
-        bx = start_x + i * (box_size + gap)
-        # Filled boxes (first 2 filled)
-        if i < 2:
-            draw_rounded_rect(draw, [bx, box_y, bx+box_size, box_y+box_size], 12,
-                              fill=theme["input"],
-                              outline=bc, width=2)
-            # Filled dot
-            dcx = bx + box_size // 2
-            dcy = box_y + box_size // 2
-            draw.ellipse([dcx-10, dcy-10, dcx+10, dcy+10], fill=bc)
-        else:
-            draw_rounded_rect(draw, [bx, box_y, bx+box_size, box_y+box_size], 12,
-                              fill=theme["input"],
-                              outline=theme["secondary"], width=2)
+        bh=5+i*3; xi=SW-70+i*8
+        d.rectangle([xi,22-bh,xi+5,22],fill=(th.text if i<3 else th.sec))
 
-    # Biometric button
-    bio_y = box_y + box_size + 40
-    btn_w = 260
-    btn_x = SCREEN_X + (SCREEN_W - btn_w) // 2
-    draw_button(draw, img, btn_x, bio_y, btn_w, 52,
-                "  Биометрия", theme)
-    # Fingerprint emoji-like icon
-    draw.text((btn_x + 16, bio_y + 14), "~O~", font=font(18, bold=True), fill=(255,255,255))
+def appbar(sc,d,th,title,back=False):
+    y0=STATH
+    d.rectangle([0,y0,SW,y0+54],fill=th.appbar)
+    d.line([0,y0+54,SW,y0+54],fill=th.sec,width=1)
+    if back: d.text((14,y0+14),"‹",font=F(28,True),fill=th.accent)
+    f=F(19,True); bb=d.textbbox((0,0),title,font=f)
+    d.text(((SW-(bb[2]-bb[0]))//2,y0+16),title,font=f,fill=th.accent)
+    return y0+60
 
-    # Exit link
-    centered_text(draw, bio_y + 70, "Выйти", font(15), theme["subtext"])
+def ctext(d,y,txt,f,c,W=None,ox=0):
+    W=W or SW; bb=d.textbbox((0,0),txt,font=f)
+    d.text((ox+(W-(bb[2]-bb[0]))//2,y),txt,font=f,fill=c)
 
-    return img
+def rr(d,x,y,w,h,r,fill=None,outline=None,width=1):
+    d.rounded_rectangle([x,y,x+w,y+h],radius=r,fill=fill,outline=outline,width=width)
 
+def grad_box(sc,x,y,w,h,r,c1,c2):
+    arr=vgrad(c1,c2,w,h); tmp=Image.fromarray(arr)
+    sc.paste(tmp,(x,y),rrmask(w,h,r))
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 6: PASSWORDS LIST
-# ═══════════════════════════════════════════════════════════════════════════════
+def icon_box(sc,cx,cy,sz,th):
+    half=sz//2; x0,y0=cx-half,cy-half
+    grad_box(sc,x0,y0,sz,sz,sz//4,bri(th.btn,1.15),dim(th.btn,0.65))
+    d=ImageDraw.Draw(sc)
+    d.rounded_rectangle([x0,y0,x0+sz,y0+sz],radius=sz//4,
+                         outline=(*bri(th.btn,1.5),100),width=2)
 
-SAMPLE_PASSWORDS = [
-    {"site": "github.com",     "login": "dev@mail.com",    "color": (36, 41, 47),   "letter": "G", "has_2fa": True},
-    {"site": "gmail.com",      "login": "myemail@gmail.com","color": (234, 67, 53), "letter": "G", "has_2fa": False},
-    {"site": "aws.amazon.com", "login": "admin@company.io", "color": (255, 153, 0), "letter": "A", "has_2fa": True},
-    {"site": "figma.com",      "login": "designer@team.co", "color": (162, 89, 255),"letter": "F", "has_2fa": False},
-    {"site": "notion.so",      "login": "notes@work.dev",   "color": (0, 0, 0),     "letter": "N", "has_2fa": False},
+def inp(sc,d,x,y,w,h,hint,th,val=None,pw=False,icon=None,focus=False):
+    rr(d,x,y,w,h,12,fill=th.inp)
+    bc=th.btn if focus else th.sec
+    rr(d,x,y,w,h,12,outline=bc,width=2 if focus else 1)
+    px2=x+14
+    if icon: d.text((px2,y+(h-18)//2),icon,font=F(14),fill=th.sub); px2+=24
+    txt=("•"*min(len(val or ""),10) if pw and val else (val or hint))
+    col=th.text if val else th.sub
+    d.text((px2,y+(h-20)//2),txt,font=F(15),fill=col)
+
+def btn(sc,d,x,y,w,h,lbl,th):
+    grad_box(sc,x,y,w,h,12,mix(th.btn,(255,255,255),0.08),dim(th.btn,0.7))
+    d2=ImageDraw.Draw(sc)
+    d2.rounded_rectangle([x,y,x+w,y+h],radius=12,outline=(*bri(th.btn,1.5),70),width=1)
+    f=F(17,True); bb=d2.textbbox((0,0),lbl,font=f)
+    d2.text((x+(w-(bb[2]-bb[0]))//2,y+(h-(bb[3]-bb[1]))//2),lbl,font=f,fill=(255,255,255))
+
+def toggle(sc,d,x,y,on,th):
+    rr(d,x,y,46,24,12,fill=(th.btn if on else th.sec))
+    cx2=(x+26) if on else (x+2)
+    d.ellipse([cx2,y+2,cx2+20,y+22],fill=(255,255,255))
+
+def nav_bar(sc,d,th,active=0):
+    ny=SH-54
+    d.rectangle([0,ny,SW,SH],fill=th.appbar)
+    d.line([0,ny,SW,ny],fill=th.sec,width=1)
+    for i,lbl in enumerate(["Пароли","Настройки"]):
+        nx=(i+0.5)*SW//2; c=th.btn if i==active else th.sub
+        bb=d.textbbox((0,0),lbl,font=F(13,i==active))
+        d.text((nx-(bb[2]-bb[0])//2,ny+10),lbl,font=F(13,i==active),fill=c)
+        if i==active: rr(d,nx-22,ny+2,44,3,2,fill=th.btn)
+
+def neon_glow(sc,x,y,txt,f,col,gcol,gr=7):
+    tmp=Image.new("RGBA",sc.size,(0,0,0,0))
+    td=ImageDraw.Draw(tmp)
+    td.text((x,y),txt,font=f,fill=(*gcol,180))
+    blr=tmp.filter(ImageFilter.GaussianBlur(gr))
+    sc.paste(blr.convert("RGB"),(0,0),blr.split()[3])
+    ImageDraw.Draw(sc).text((x,y),txt,font=f,fill=col)
+
+def neon_ctext(sc,y,txt,f,col,gcol,gr=7):
+    d=ImageDraw.Draw(sc); bb=d.textbbox((0,0),txt,font=f)
+    neon_glow(sc,(SW-(bb[2]-bb[0]))//2,y,txt,f,col,gcol,gr)
+
+# ── Asset loaders ────────────────────────────────────────────────────────────
+_logo=_bgc=_bgg=None
+
+def get_logo(sz=160):
+    global _logo
+    if _logo is None: _logo=Image.open(LOGO).convert("RGBA")
+    return _logo.resize((sz,sz),Image.LANCZOS)
+
+def _crop_bg(path):
+    img=Image.open(path).convert("RGB")
+    ar=img.width/img.height; tar=SW/SH
+    if ar>tar:
+        nw=int(img.height*tar); x0=(img.width-nw)//2
+        img=img.crop((x0,0,x0+nw,img.height))
+    else:
+        nh=int(img.width/tar); y0=(img.height-nh)//2
+        img=img.crop((0,y0,img.width,y0+nh))
+    return img.resize((SW,SH),Image.LANCZOS)
+
+def get_bgc():
+    global _bgc
+    if _bgc is None: _bgc=_crop_bg(BG_CYB)
+    return _bgc.copy()
+
+def get_bgg():
+    global _bgg
+    if _bgg is None: _bgg=_crop_bg(BG_GLASS)
+    return _bgg.copy()
+
+# ── Sample data ──────────────────────────────────────────────────────────────
+ENTRIES=[
+    {"site":"github.com",      "login":"dev@mail.com",       "c":(36,41,47),   "L":"G","fa":True },
+    {"site":"gmail.com",       "login":"myemail@gmail.com",  "c":(234,67,53),  "L":"G","fa":False},
+    {"site":"aws.amazon.com",  "login":"admin@company.io",   "c":(255,153,0),  "L":"A","fa":True },
+    {"site":"figma.com",       "login":"designer@studio.co", "c":(162,89,255), "L":"F","fa":False},
+    {"site":"notion.so",       "login":"notes@work.dev",     "c":(0,0,0),      "L":"N","fa":False},
 ]
 
-def draw_password_card(draw, img, x, y, w, entry, theme):
-    """Draw a single password card."""
-    h = 72
-    bg = theme["input"]
-    border = theme["secondary"]
-
-    # Card background
-    draw_rounded_rect(draw, [x, y, x+w, y+h], 14, fill=bg, outline=border, width=1)
-
-    # Favicon circle
-    fav_r = 20
-    fav_cx = x + 16 + fav_r
-    fav_cy = y + h // 2
-    draw.ellipse([fav_cx-fav_r, fav_cy-fav_r, fav_cx+fav_r, fav_cy+fav_r],
-                 fill=entry["color"])
-    lf = font(16, bold=True)
-    bbox = draw.textbbox((0,0), entry["letter"], font=lf)
-    lw, lh = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    draw.text((fav_cx-lw//2, fav_cy-lh//2-1), entry["letter"],
-              font=lf, fill=(255, 255, 255))
-
-    # Text content
-    tx = fav_cx + fav_r + 14
-    draw.text((tx, y+10), entry["site"], font=font(16, bold=True), fill=theme["text"])
-    draw.text((tx, y+32), entry["login"], font=font(13), fill=theme["subtext"])
-
-    # Right side icons
-    rx = x + w - 16
-    if entry.get("has_2fa"):
-        draw.text((rx - 60, y + 26), "[2FA]", font=font(11), fill=theme["accent"])
-    draw.text((rx - 30, y + 24), "[*]", font=font(13), fill=theme["subtext"])
-    draw.text((rx - 8, y + 24), ">", font=font(14, bold=True), fill=theme["subtext"])
-
-    return h
-
-def screen_passwords(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    content_y = draw_appbar(draw, img, "Пароли", theme)
-
-    # AppBar right icons
-    ry = SCREEN_Y + STATUS_H + 12
-    draw.text((SCREEN_X + SCREEN_W - 120, ry), "[S]", font=font(14), fill=theme["accent"])
-    draw.text((SCREEN_X + SCREEN_W - 80, ry),  "[+]", font=font(14, bold=True), fill=theme["accent"])
-    draw.text((SCREEN_X + SCREEN_W - 42, ry),  "[=]", font=font(14), fill=theme["accent"])
-
-    # Search bar
-    y = content_y + 12
-    sx = SCREEN_X + 16
-    sw = SCREEN_W - 32
-    draw_input_field(draw, img, sx, y, sw, 44, "  Поиск...", theme)
-    draw.text((sx+12, y+13), "?", font=font(16, bold=True), fill=theme["subtext"])
-
-    # Password list
-    y += 56 + 4
-    card_x = SCREEN_X + 14
-    card_w = SCREEN_W - 28
-    for entry in SAMPLE_PASSWORDS:
-        h = draw_password_card(draw, img, card_x, y, card_w, entry, theme)
-        y += h + 10
-        if y > SCREEN_Y + SCREEN_H - 80:
-            break
-
-    # Bottom nav bar
-    nav_y = SCREEN_Y + SCREEN_H - 56
-    draw.rectangle([SCREEN_X, nav_y, SCREEN_X+SCREEN_W, SCREEN_Y+SCREEN_H],
-                   fill=theme["appbar"])
-    draw.line([SCREEN_X, nav_y, SCREEN_X+SCREEN_W, nav_y], fill=theme["secondary"], width=1)
-    nav_items = [("Пароли", True), ("Настройки", False)]
-    for i, (label, active) in enumerate(nav_items):
-        nx = SCREEN_X + (i + 0.5) * SCREEN_W // 2
-        c = theme["button"] if active else theme["subtext"]
-        bbox = draw.textbbox((0,0), label, font=font(13, bold=active))
-        tw = bbox[2]-bbox[0]
-        draw.text((nx - tw//2, nav_y + 10), label, font=font(13, bold=active), fill=c)
-        if active:
-            draw.rectangle([nx - 20, nav_y+2, nx+20, nav_y+4], fill=theme["button"])
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 7: ADD PASSWORD
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_add_password(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    content_y = draw_appbar(draw, img, "Добавление пароля", theme, show_back=True)
-
-    field_x = SCREEN_X + 20
-    field_w = SCREEN_W - 40
-    field_h = 52
-    y = content_y + 16
-
-    fields = [
-        ("Сайт", "github.com", False),
-        ("Логин", "dev@example.com", False),
-        ("Пароль", "SuperSecret!42", True),
-        ("Заметки (необязательно)", "", False),
-    ]
-
-    for hint, value, is_pw in fields:
-        draw_input_field(draw, img, field_x, y, field_w,
-                         field_h if hint != "Заметки (необязательно)" else 80,
-                         hint, theme, value=value if value else None, is_password=is_pw)
-        y += (field_h if hint != "Заметки (необязательно)" else 80) + 12
-
-    # Generate password button (small, next to password field)
-    gen_y = content_y + 16 + (field_h + 12) * 2
-    draw.text((field_x + field_w - 110, gen_y + field_h + 8),
-              "[обновить]", font=font(12), fill=theme["accent"])
-
-    y += 8
-    # Toggle: 2FA
-    toggle_h = 52
-    draw_rounded_rect(draw, [field_x, y, field_x+field_w, y+toggle_h], 12,
-                      fill=theme["input"], outline=theme["secondary"], width=1)
-    draw.text((field_x+16, y+17), "Двухфакторная аутентификация", font=font(15), fill=theme["text"])
-    # Toggle switch (ON)
-    ts_x = field_x + field_w - 58
-    ts_y = y + 14
-    draw.rounded_rectangle([ts_x, ts_y, ts_x+46, ts_y+24], radius=12,
-                            fill=theme["button"])
-    draw.ellipse([ts_x+24, ts_y+2, ts_x+44, ts_y+22], fill=(255,255,255))
-    y += toggle_h + 10
-
-    # Toggle: Seed phrase
-    draw_rounded_rect(draw, [field_x, y, field_x+field_w, y+toggle_h], 12,
-                      fill=theme["input"], outline=theme["secondary"], width=1)
-    draw.text((field_x+16, y+17), "Seed-фраза", font=font(15), fill=theme["text"])
-    ts_x = field_x + field_w - 58
-    ts_y = y + 14
-    draw.rounded_rectangle([ts_x, ts_y, ts_x+46, ts_y+24], radius=12,
-                            fill=theme["secondary"])
-    draw.ellipse([ts_x+2, ts_y+2, ts_x+22, ts_y+22], fill=(255,255,255))
-    y += toggle_h + 16
-
-    # Save button
-    draw_button(draw, img, field_x, y, field_w, 54, "Сохранить", theme)
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 8: SETTINGS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def draw_settings_item(draw, img, x, y, w, icon, title, subtitle, theme, value=None, is_switch=None, switch_on=False):
-    h = 62
-    draw_rounded_rect(draw, [x, y, x+w, y+h], 12, fill=theme["input"], outline=theme["secondary"], width=1)
-    # Icon
-    bc = theme["button"]
-    draw.ellipse([x+10, y+14, x+38, y+42], fill=tuple(c//3 for c in bc))
-    draw.text((x+16, y+18), icon, font=font(14, bold=True), fill=bc)
-    # Text
-    tx = x + 52
-    draw.text((tx, y+10), title, font=font(15, bold=True), fill=theme["text"])
-    if subtitle:
-        draw.text((tx, y+31), subtitle, font=font(12), fill=theme["subtext"])
-    # Right side
-    rx = x + w - 16
-    if is_switch is not None:
-        ts_x = rx - 52
-        ts_y = y + 18
-        col = theme["button"] if switch_on else theme["secondary"]
-        draw.rounded_rectangle([ts_x, ts_y, ts_x+46, ts_y+24], radius=12, fill=col)
-        cx2 = (ts_x+26) if switch_on else (ts_x+2)
-        draw.ellipse([cx2, ts_y+2, cx2+20, ts_y+22], fill=(255,255,255))
-    elif value:
-        draw.text((rx - len(value)*7, y+22), value, font=font(13), fill=theme["subtext"])
+def draw_card(sc,d,x,y,w,e,th,glass=False):
+    h=72
+    if glass:
+        ol=Image.new("RGBA",(w,h),(0,0,0,0))
+        gd=ImageDraw.Draw(ol)
+        gd.rounded_rectangle([0,0,w-1,h-1],radius=14,fill=(255,255,255,30),
+                               outline=(255,255,255,75),width=1)
+        sc=sc.convert("RGBA"); sc.paste(ol,(x,y),ol.split()[3]); sc=sc.convert("RGB")
+        d=ImageDraw.Draw(sc)
     else:
-        draw.text((rx-8, y+22), ">", font=font(16, bold=True), fill=theme["subtext"])
-    return h
+        rr(d,x,y,w,h,14,fill=th.inp); rr(d,x,y,w,h,14,outline=th.sec,width=1)
+    r2=21; cx2=x+16+r2; cy2=y+h//2
+    d.ellipse([cx2-r2,cy2-r2,cx2+r2,cy2+r2],fill=e["c"])
+    lf=F(16,True); bb=d.textbbox((0,0),e["L"],font=lf)
+    d.text((cx2-(bb[2]-bb[0])//2,cy2-(bb[3]-bb[1])//2-1),e["L"],font=lf,fill=(255,255,255))
+    tx=cx2+r2+12
+    d.text((tx,y+10),e["site"],font=F(15,True),fill=th.text)
+    d.text((tx,y+32),e["login"],font=F(12),fill=th.sub)
+    if e["fa"]:
+        bw=34; bx2=x+w-56
+        rr(d,bx2,y+27,bw,19,6,fill=dim(th.btn,0.2),outline=dim(th.btn,0.5),width=1)
+        d.text((bx2+5,y+29),"2FA",font=F(10,True),fill=th.accent)
+    return sc, d
 
-def screen_settings(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    content_y = draw_appbar(draw, img, "Настройки", theme)
+# ═══════════════════════════════════════════════════════════════════════════
+# SCREENS
+# ═══════════════════════════════════════════════════════════════════════════
 
-    ix = SCREEN_X + 14
-    iw = SCREEN_W - 28
-    y = content_y + 10
+def Splash():
+    sc=ns(D.bg)
+    # Radial glow
+    gd=ImageDraw.Draw(sc)
+    for r2 in range(220,0,-12):
+        a=int((1-r2/220)*35); c=mix(D.bg,D.btn,(1-r2/220)*0.25)
+        gd.ellipse([SW//2-r2,SH//2-r2,SW//2+r2,SH//2+r2],outline=(*c,a),width=2)
+    d=ImageDraw.Draw(sc); status(d,D)
+    cy=SH//2-30
+    # Logo (real raw.png, circular)
+    logo=get_logo(168)
+    cm=Image.new("L",(168,168),0); ImageDraw.Draw(cm).ellipse([0,0,167,167],fill=255)
+    lx=(SW-168)//2; ly=cy-84
+    sc.paste(logo.convert("RGB"),(lx,ly),cm)
+    # Glow ring
+    d=ImageDraw.Draw(sc)
+    for r2,a2 in [(88,18),(76,32),(62,48)]:
+        d.ellipse([SW//2-r2,cy-r2,SW//2+r2,cy+r2],outline=(*D.btn,a2),width=2)
+    # ZERO
+    y=ly+178; f=F(50,True)
+    bb=d.textbbox((0,0),"ZERO",font=f); tw=bb[2]-bb[0]; tx=(SW-tw)//2
+    d.text((tx+3,y+3),"ZERO",font=f,fill=dim(D.btn,0.25))
+    d.text((tx,y),"ZERO",font=f,fill=D.btn)
+    ctext(d,y+64,"Менеджер паролей",F(16),D.sub)
+    dy=y+110
+    for i in range(3):
+        dx=SW//2-22+i*22; r2=5 if i==1 else 4
+        d.ellipse([dx-r2,dy-r2,dx+r2,dy+r2],fill=(D.btn if i==1 else D.sec))
+    return sc
 
-    sections = [
-        ("БЕЗОПАСНОСТЬ", [
-            ("[]", "PIN-код",          "PIN-код установлен",      None, None, False),
-            ("/",  "Скрыть seed-фразы","Включено",                None, True, True),
-            ("~",  "Биометрия",        "Использовать отпечаток",  None, True, False),
+def Login(th=D):
+    sc=ns(th.bg); d=ImageDraw.Draw(sc); status(d,th)
+    cy=STATH+50
+    icon_box(sc,SW//2,cy+42,80,th)
+    d=ImageDraw.Draw(sc)
+    # lock symbol
+    d.rectangle([SW//2-10,cy+28,SW//2+10,cy+36],outline=(255,255,255),width=2)
+    d.rounded_rectangle([SW//2-12,cy+34,SW//2+12,cy+52],radius=3,fill=(255,255,255,180))
+    d.ellipse([SW//2-3,cy+40,SW//2+3,cy+46],fill=th.btn)
+    y=cy+94; f=F(46,True)
+    bb=d.textbbox((0,0),"ZERO",font=f); tx=(SW-(bb[2]-bb[0]))//2
+    d.text((tx+2,y+2),"ZERO",font=f,fill=dim(th.btn,0.28)); d.text((tx,y),"ZERO",font=f,fill=th.btn)
+    ctext(d,y+62,"Менеджер паролей",F(15),th.sub)
+    fx=26; fw=SW-52; fy=y+104
+    inp(sc,d,fx,fy,fw,52,"Логин",th,val="user@example.com",icon="@"); fy+=65
+    inp(sc,d,fx,fy,fw,52,"Пароль",th,val="password123",pw=True,icon="*"); fy+=65
+    btn(sc,d,fx,fy,fw,52,"Войти",th); fy+=66
+    ctext(d,fy,"Нет аккаунта? Зарегистрироваться",F(14),th.accent)
+    return sc
+
+def Signup(th=D):
+    sc=ns(th.bg); d=ImageDraw.Draw(sc); status(d,th)
+    cy=STATH+50
+    icon_box(sc,SW//2,cy+42,80,th)
+    d=ImageDraw.Draw(sc)
+    # person+ icon
+    d.ellipse([SW//2-12,cy+22,SW//2+12,cy+46],outline=(255,255,255),width=2)
+    d.arc([SW//2-20,cy+44,SW//2+20,cy+64],0,180,fill=(255,255,255),width=2)
+    d.text((SW//2+8,cy+22),"+",font=F(18,True),fill=(255,255,255))
+    y=cy+94; f=F(46,True)
+    bb=d.textbbox((0,0),"ZERO",font=f); tx=(SW-(bb[2]-bb[0]))//2
+    d.text((tx+2,y+2),"ZERO",font=f,fill=dim(th.btn,0.28)); d.text((tx,y),"ZERO",font=f,fill=th.btn)
+    ctext(d,y+62,"Создание аккаунта",F(15),th.sub)
+    fx=26; fw=SW-52; fy=y+104
+    inp(sc,d,fx,fy,fw,52,"Логин",th,val="new_user",icon="@"); fy+=65
+    inp(sc,d,fx,fy,fw,52,"Пароль",th,val="SecurePass!",pw=True,icon="*"); fy+=65
+    btn(sc,d,fx,fy,fw,52,"Зарегистрироваться",th); fy+=66
+    ctext(d,fy,"Уже есть аккаунт? Войти",F(14),th.accent); fy+=46
+    # 2FA hint
+    rr(d,fx,fy,fw,62,12,fill=dim(th.btn,0.12),outline=dim(th.btn,0.4),width=1)
+    d.text((fx+14,fy+12),"2FA — Настройте после регистрации",font=F(13),fill=th.accent)
+    d.text((fx+14,fy+32),"для максимальной защиты аккаунта",font=F(12),fill=th.sub)
+    d.text((fx+14,fy+48),"Google Auth / Microsoft Auth / Aegis",font=F(11),fill=th.sec)
+    return sc
+
+def Pin(th=D):
+    sc=ns(th.bg); d=ImageDraw.Draw(sc); status(d,th)
+    cy=SH//2-70
+    icon_box(sc,SW//2,cy-52,74,th)
+    d=ImageDraw.Draw(sc)
+    d.rectangle([SW//2-10,cy-66,SW//2+10,cy-58],outline=(255,255,255),width=2)
+    d.rounded_rectangle([SW//2-14,cy-60,SW//2+14,cy-38],radius=3,fill=(255,255,255,200))
+    ctext(d,cy+8,"Введите PIN-код",F(24,True),th.text)
+    ctext(d,cy+40,"Для доступа к приложению",F(14),th.sub)
+    bsz=58; gap=14; total=4*bsz+3*gap; bx0=(SW-total)//2; by=cy+82
+    for i in range(4):
+        bx=bx0+i*(bsz+gap)
+        rr(d,bx,by,bsz,bsz,12,fill=th.inp)
+        if i<2:
+            rr(d,bx,by,bsz,bsz,12,outline=th.btn,width=2)
+            cx2=bx+bsz//2; cy2=by+bsz//2
+            d.ellipse([cx2-10,cy2-10,cx2+10,cy2+10],fill=th.btn)
+        else:
+            rr(d,bx,by,bsz,bsz,12,outline=th.sec,width=1)
+    bio_w=242; bio_y=by+bsz+44; bio_x=(SW-bio_w)//2
+    btn(sc,d,bio_x,bio_y,bio_w,50,"  Использовать биометрию",th)
+    d=ImageDraw.Draw(sc)
+    for r2 in [14,10,6]:
+        d.arc([bio_x+15-r2,bio_y+25-r2,bio_x+15+r2,bio_y+25+r2],200,340,fill=(255,255,255),width=1)
+    ctext(d,bio_y+68,"Выйти",F(15),th.sub)
+    return sc
+
+def Passwords(th=D,bg=None):
+    if bg:
+        ov=Image.new("RGBA",(SW,SH),(*th.bg,210))
+        sc=bg.convert("RGBA"); sc=Image.alpha_composite(sc,ov); sc=sc.convert("RGB")
+    else:
+        sc=ns(th.bg)
+    d=ImageDraw.Draw(sc); status(d,th)
+    cy=appbar(sc,d,th,"Пароли")
+    for ix2,ic in [(SW-108,"⊕"),(SW-70,"⊞"),(SW-34,"⚙")]:
+        d.text((ix2,STATH+18),ic,font=F(15,True),fill=th.accent)
+    inp(sc,d,14,cy,SW-28,42,"  Поиск паролей…",th,icon="?"); cy+=54
+    for e in ENTRIES:
+        if cy+78>SH-60: break
+        sc,d=draw_card(sc,d,14,cy,SW-28,e,th,glass=bool(bg)); cy+=82
+    nav_bar(sc,d,th,0); return sc
+
+def AddPassword(th=D):
+    sc=ns(th.bg); d=ImageDraw.Draw(sc)
+    cy=appbar(sc,d,th,"Добавление пароля",back=True)
+    fx=20; fw=SW-40
+    for hint,val,pw,ic in [("Сайт","github.com",False,"🌐"),
+                             ("Логин","dev@example.com",False,"@"),
+                             ("Пароль","SuperS3cret!",True,"*"),
+                             ("Заметки","",False,"#")]:
+        h=72 if hint=="Заметки" else 52
+        inp(sc,d,fx,cy,fw,h,hint,th,val=val or None,pw=pw,icon=ic)
+        if hint=="Пароль":
+            rr(d,fx+fw-66,cy+h+4,60,22,8,fill=dim(th.btn,0.18),outline=dim(th.btn,0.4),width=1)
+            d.text((fx+fw-60,cy+h+8),"↻ генер.",font=F(10),fill=th.accent)
+        cy+=h+12
+    cy+=6
+    rr(d,fx,cy,fw,52,12,fill=th.inp,outline=th.sec,width=1)
+    d.text((fx+14,cy+16),"Двухфакторная аутентификация",font=F(14),fill=th.text)
+    toggle(sc,d,fx+fw-54,cy+14,on=True,th=th); d=ImageDraw.Draw(sc); cy+=62
+    rr(d,fx,cy,fw,52,12,fill=th.inp,outline=th.sec,width=1)
+    d.text((fx+14,cy+16),"Seed-фраза",font=F(14),fill=th.text)
+    toggle(sc,d,fx+fw-54,cy+14,on=False,th=th); d=ImageDraw.Draw(sc); cy+=64
+    btn(sc,d,fx,cy,fw,52,"Сохранить",th)
+    return sc
+
+def Settings(th=D):
+    sc=ns(th.bg); d=ImageDraw.Draw(sc)
+    cy=appbar(sc,d,th,"Настройки")
+    ix=14; iw=SW-28
+    SECS=[
+        ("БЕЗОПАСНОСТЬ",[
+            ("[]","PIN-код","PIN-код установлен",True,True),
+            ("/","Скрыть seed-фразы","Включено",True,True),
+            ("~","Биометрия","Отпечаток пальца",True,False),
+            ("H","История паролей","Просмотреть",False,False),
         ]),
-        ("ИНТЕРФЕЙС", [
-            ("*",  "Тема приложения",  theme["name"],             None, None, False),
+        ("ИНТЕРФЕЙС",[("*","Тема приложения",th.name,False,False)]),
+        ("АККАУНТ",[
+            ("@","Обновить favicon","Обновить иконки",False,False),
+            ("→","Выйти","Завершить сессию",False,False),
         ]),
-        ("АККАУНТ", [
-            ("@",  "Обновить favicon", "Обновить иконки сайтов",  None, None, False),
-            ("->", "Выйти",            "Завершить сессию",        None, None, False),
-        ]),
-        ("ИНФОРМАЦИЯ", [
-            ("i",  "Версия",           "0.2.1",                   None, None, False),
-        ]),
+        ("О ПРИЛОЖЕНИИ",[("i","Версия","0.2.1",False,False)]),
     ]
+    for sn,items in SECS:
+        if cy+32>SH-70: break
+        d.text((ix+4,cy+4),sn,font=F(11,True),fill=th.accent); cy+=26
+        for icon,title,sub2,isw,son in items:
+            if cy+58>SH-70: break
+            rr(d,ix,cy,iw,58,12,fill=th.inp,outline=th.sec,width=1)
+            rr(d,ix+10,cy+14,30,30,8,fill=dim(th.btn,0.22))
+            d.text((ix+17,cy+18),icon,font=F(12,True),fill=th.btn)
+            d.text((ix+50,cy+10),title,font=F(14,True),fill=th.text)
+            d.text((ix+50,cy+30),sub2,font=F(12),fill=th.sub)
+            if isw: toggle(sc,d,ix+iw-54,cy+17,on=son,th=th); d=ImageDraw.Draw(sc)
+            else: d.text((ix+iw-16,cy+20),"›",font=F(20,True),fill=th.sub)
+            cy+=66
+        cy+=4
+    if cy+68<SH-60:
+        rr(d,ix,cy,iw,66,16,fill=dim(th.btn,0.08),outline=dim(th.btn,0.3),width=1)
+        rr(d,ix+12,cy+12,44,44,10,fill=th.btn)
+        d.text((ix+18,cy+21),"</>",font=F(12,True),fill=(255,255,255))
+        d.text((ix+66,cy+13),"Создано NK_TRIPLLE",font=F(14,True),fill=th.text)
+        d.text((ix+66,cy+34),"С любовью к безопасности",font=F(12),fill=th.sub)
+    nav_bar(sc,d,th,1); return sc
 
-    for section_name, items in sections:
-        # Section header
-        draw.text((ix+4, y+4), section_name, font=font(12, bold=True), fill=theme["button"])
-        y += 26
-        for icon, title, subtitle, value, is_sw, sw_on in items:
-            h = draw_settings_item(draw, img, ix, y, iw, icon, title, subtitle, theme,
-                                   value=value, is_switch=is_sw, switch_on=sw_on)
-            y += h + 8
-        y += 6
+def CyberpunkPasswords():
+    bg=get_bgc()
+    ov_a=dgrad((8,8,8),(16,4,18),(4,14,14),SW,SH)
+    ov=Image.fromarray(ov_a.astype(np.uint8))
+    sc=Image.blend(bg,ov,0.74)
+    d=ImageDraw.Draw(sc); status(d,C)
+    cy=appbar(sc,d,C,"Пароли")
+    neon_ctext(sc,cy,"◈  CYBERPUNK  THEME  ◈",F(13,True),C.btn,C.accent,gr=8)
+    d=ImageDraw.Draw(sc); cy+=28
+    inp(sc,d,14,cy,SW-28,42,"  Поиск…",C,icon="?")
+    d=ImageDraw.Draw(sc)
+    d.rounded_rectangle([14,cy,SW-14,cy+42],radius=12,outline=(*C.btn,180),width=2); cy+=54
+    for e in ENTRIES:
+        if cy+78>SH-60: break
+        h=72; rr(d,14,cy,SW-28,h,14,fill=(12,12,22))
+        d.rounded_rectangle([14,cy,SW-14,cy+h],radius=14,outline=(*C.btn,210),width=2)
+        d.rectangle([16,cy+8,21,cy+h-8],fill=C.btn)
+        r2=21; cx2=32+r2; cy2=cy+h//2
+        d.ellipse([cx2-r2,cy2-r2,cx2+r2,cy2+r2],fill=e["c"])
+        lf=F(15,True); bb=d.textbbox((0,0),e["L"],font=lf)
+        d.text((cx2-(bb[2]-bb[0])//2,cy2-(bb[3]-bb[1])//2-1),e["L"],font=lf,fill=(255,255,255))
+        neon_glow(sc,cx2+r2+12,cy+10,e["site"],F(15,True),C.btn,C.btn,gr=4)
+        d=ImageDraw.Draw(sc)
+        d.text((cx2+r2+12,cy+32),e["login"],font=F(12),fill=C.sub)
+        if e["fa"]:
+            d.text((SW-52,cy+28),"2FA",font=F(11,True),fill=C.accent)
+        cy+=82
+    nav_bar(sc,d,C,0); return sc
 
-    # Creator card
-    if y + 80 < SCREEN_Y + SCREEN_H - 60:
-        ccard_h = 70
-        bc = theme["button"]
-        draw_rounded_rect(draw, [ix, y, ix+iw, y+ccard_h], 16,
-                          fill=tuple(c//5 for c in bc),
-                          outline=tuple(c//2 for c in bc), width=1)
-        draw.text((ix+16, y+10), "{ }", font=font(22, bold=True), fill=bc)
-        draw.text((ix+60, y+10), "Создано NK_TRIPLLE",
-                  font=font(15, bold=True), fill=theme["text"])
-        draw.text((ix+60, y+32), "С любовью к безопасности",
-                  font=font(13), fill=theme["subtext"])
+def GlassPasswords():
+    bg=get_bgg().filter(ImageFilter.GaussianBlur(4))
+    ov_a=dgrad((25,25,42),(38,32,58),(44,38,68),SW,SH)
+    ov=Image.fromarray(ov_a.astype(np.uint8))
+    sc=Image.blend(bg,ov,0.58)
+    # Decorative blobs
+    blob=Image.new("RGBA",(SW,SH),(0,0,0,0))
+    bd=ImageDraw.Draw(blob)
+    bd.ellipse([20,90,190,290],fill=(137,180,250,45))
+    bd.ellipse([SW-200,220,SW-20,430],fill=(180,190,254,35))
+    blob=blob.filter(ImageFilter.GaussianBlur(35))
+    sc=sc.convert("RGBA"); sc=Image.alpha_composite(sc,blob); sc=sc.convert("RGB")
+    d=ImageDraw.Draw(sc); status(d,G)
+    cy=appbar(sc,d,G,"Пароли")
+    ctext(d,cy,"✦  GLASSMORPHISM  THEME  ✦",F(13,True),G.accent); cy+=28
+    inp(sc,d,14,cy,SW-28,42,"  Поиск…",G,icon="?")
+    d=ImageDraw.Draw(sc)
+    d.rounded_rectangle([14,cy,SW-14,cy+42],radius=12,outline=(255,255,255,90),width=1); cy+=54
+    for e in ENTRIES:
+        if cy+78>SH-60: break
+        sc,d=draw_card(sc,d,14,cy,SW-28,e,G,glass=True); cy+=82
+    nav_bar(sc,d,G,0); return sc
 
-    return img
+# ── Transition ───────────────────────────────────────────────────────────────
+def trans(a,b,n=3):
+    return [Image.blend(a,b,(i+1)/(n+1)) for i in range(n)]
 
+def to_p(img):
+    return img.convert("P",palette=Image.ADAPTIVE,colors=240,dither=0)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCREEN 9: PASSWORD DETAIL (edit)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_edit_password(theme):
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-    content_y = draw_appbar(draw, img, "Редактирование", theme, show_back=True)
-
-    field_x = SCREEN_X + 20
-    field_w = SCREEN_W - 40
-    field_h = 52
-    y = content_y + 16
-
-    # Favicon preview
-    entry = SAMPLE_PASSWORDS[0]
-    fav_r = 30
-    fav_cx = SCREEN_X + SCREEN_W // 2
-    draw.ellipse([fav_cx-fav_r, y-2, fav_cx+fav_r, y+2*fav_r-2], fill=entry["color"])
-    lf = font(20, bold=True)
-    bbox = draw.textbbox((0,0), entry["letter"], font=lf)
-    lw, lh = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    draw.text((fav_cx-lw//2, y+fav_r-lh//2-2), entry["letter"], font=lf, fill=(255,255,255))
-    y += 2*fav_r + 16
-
-    fields = [
-        ("Сайт",   "github.com",           False),
-        ("Логин",  "dev@mail.com",          False),
-        ("Пароль", "myGitHubPass!",         True),
-        ("Заметки","Основной акаунт разработчика", False),
-    ]
-    for hint, value, is_pw in fields:
-        h2 = field_h if hint != "Заметки" else 72
-        draw_input_field(draw, img, field_x, y, field_w, h2, hint, theme,
-                         value=value, is_password=is_pw)
-        y += h2 + 12
-
-    y += 8
-    draw_button(draw, img, field_x, y, field_w, 54, "Сохранить изменения", theme)
-    y += 68
-
-    # Delete button
-    del_col = theme["error"]
-    draw_rounded_rect(draw, [field_x, y, field_x+field_w, y+54], 14,
-                      fill=tuple(c//4 for c in del_col),
-                      outline=del_col, width=1)
-    bbox = draw.textbbox((0,0), "Удалить запись", font=font(17, bold=True))
-    tw = bbox[2]-bbox[0]
-    tx = field_x + (field_w - tw) // 2
-    draw.text((tx, y+16), "Удалить запись", font=font(17, bold=True), fill=del_col)
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# THEME COMPARISON FRAMES (Cyberpunk + Glass passwords)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def screen_cyberpunk_passwords():
-    theme = THEMES["cyberpunk"]
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-
-    # Cyberpunk gradient background
-    draw_gradient_rect(img,
-                       [SCREEN_X, SCREEN_Y, SCREEN_X+SCREEN_W, SCREEN_Y+SCREEN_H],
-                       (10, 10, 10), (26, 10, 26))
-
-    content_y = draw_appbar(draw, img, "Пароли", theme)
-
-    # Neon accent lines
-    ac = theme["accent"]  # magenta
-    bc = theme["button"]  # cyan
-    draw.line([SCREEN_X, content_y, SCREEN_X+SCREEN_W, content_y], fill=bc, width=2)
-
-    # Theme badge
-    badge_text = "[ CYBERPUNK ]"
-    bbox = draw.textbbox((0,0), badge_text, font=font(14, bold=True))
-    tw = bbox[2]-bbox[0]
-    bx = SCREEN_X + (SCREEN_W - tw) // 2
-    draw.text((bx+1, content_y+8+1), badge_text, font=font(14, bold=True), fill=(0,0,0))
-    draw.text((bx, content_y+8), badge_text, font=font(14, bold=True), fill=ac)
-
-    y = content_y + 36
-    card_x = SCREEN_X + 14
-    card_w = SCREEN_W - 28
-
-    for entry in SAMPLE_PASSWORDS:
-        h = 72
-        # Cyberpunk card style: dark bg, cyan border
-        draw_rounded_rect(draw, [card_x, y, card_x+card_w, y+h], 14,
-                          fill=(15, 15, 15),
-                          outline=bc, width=2)
-        # Neon left accent bar
-        draw.rectangle([card_x+2, y+6, card_x+5, y+h-6], fill=bc)
-
-        # Favicon
-        fav_r = 20
-        fav_cx = card_x + 26
-        fav_cy = y + h // 2
-        draw.ellipse([fav_cx-fav_r, fav_cy-fav_r, fav_cx+fav_r, fav_cy+fav_r],
-                     fill=entry["color"])
-        lf = font(16, bold=True)
-        bbox2 = draw.textbbox((0,0), entry["letter"], font=lf)
-        lw, lh = bbox2[2]-bbox2[0], bbox2[3]-bbox2[1]
-        draw.text((fav_cx-lw//2, fav_cy-lh//2-1), entry["letter"], font=lf, fill=(255,255,255))
-
-        tx = fav_cx + fav_r + 14
-        draw.text((tx, y+10), entry["site"], font=font(16, bold=True), fill=bc)
-        draw.text((tx, y+32), entry["login"], font=font(13), fill=(0, 180, 180))
-
-        if entry.get("has_2fa"):
-            draw.text((card_x+card_w-80, y+26), "[2FA]", font=font(11), fill=ac)
-
-        y += h + 10
-        if y > SCREEN_Y + SCREEN_H - 80:
-            break
-
-    return img
-
-
-def screen_glass_passwords():
-    theme = THEMES["glass"]
-    img = make_base_frame(theme["bg"])
-    draw = ImageDraw.Draw(img)
-
-    # Glass gradient background
-    draw_gradient_rect(img,
-                       [SCREEN_X, SCREEN_Y, SCREEN_X+SCREEN_W, SCREEN_Y+SCREEN_H],
-                       (30, 30, 46), (45, 42, 70))
-
-    # Decorative blurred blobs (glassmorphism effect)
-    blob_layer = Image.new("RGBA", img.size, (0,0,0,0))
-    bd = ImageDraw.Draw(blob_layer)
-    bd.ellipse([SCREEN_X+20, SCREEN_Y+80, SCREEN_X+180, SCREEN_Y+280],
-               fill=(137,180,250,40))
-    bd.ellipse([SCREEN_X+SCREEN_W-180, SCREEN_Y+200, SCREEN_X+SCREEN_W-20, SCREEN_Y+420],
-               fill=(180,190,254,30))
-    blob_layer = blob_layer.filter(ImageFilter.GaussianBlur(30))
-    img.paste(Image.new("RGBA", img.size, (0,0,0,0)), mask=blob_layer.split()[3])
-    # Compose manually
-    arr = img.load()
-    blobr = blob_layer.load()
-    for py in range(img.height):
-        for px in range(img.width):
-            bpix = blobr[px, py]
-            if bpix[3] > 0:
-                opix = arr[px, py]
-                a = bpix[3] / 255.0
-                nr = int(opix[0] * (1-a) + bpix[0] * a)
-                ng = int(opix[1] * (1-a) + bpix[1] * a)
-                nb = int(opix[2] * (1-a) + bpix[2] * a)
-                arr[px, py] = (nr, ng, nb)
-
-    content_y = draw_appbar(draw, img, "Пароли", theme)
-
-    badge_text = "[ GLASSMORPHISM ]"
-    bbox = draw.textbbox((0,0), badge_text, font=font(14, bold=True))
-    tw = bbox[2]-bbox[0]
-    bx = SCREEN_X + (SCREEN_W - tw) // 2
-    draw.text((bx, content_y+8), badge_text, font=font(14, bold=True), fill=theme["accent"])
-
-    y = content_y + 36
-    card_x = SCREEN_X + 14
-    card_w = SCREEN_W - 28
-
-    for entry in SAMPLE_PASSWORDS:
-        h = 72
-        # Glass card: semi-transparent white overlay
-        glass_col = (255, 255, 255, 25)
-        glass_img = Image.new("RGBA", img.size, (0,0,0,0))
-        gd = ImageDraw.Draw(glass_img)
-        draw_rounded_rect(gd, [card_x, y, card_x+card_w, y+h], 14,
-                          fill=(255,255,255,30), outline=(255,255,255,60), width=1)
-        img = img.convert("RGBA")
-        img = Image.alpha_composite(img, glass_img)
-        img = img.convert("RGB")
-        draw = ImageDraw.Draw(img)
-
-        # Content
-        fav_r = 20
-        fav_cx = card_x + 26
-        fav_cy = y + h // 2
-        draw.ellipse([fav_cx-fav_r, fav_cy-fav_r, fav_cx+fav_r, fav_cy+fav_r],
-                     fill=entry["color"])
-        lf = font(16, bold=True)
-        bbox2 = draw.textbbox((0,0), entry["letter"], font=lf)
-        lw, lh = bbox2[2]-bbox2[0], bbox2[3]-bbox2[1]
-        draw.text((fav_cx-lw//2, fav_cy-lh//2-1), entry["letter"], font=lf, fill=(255,255,255))
-
-        tx = fav_cx + fav_r + 14
-        draw.text((tx, y+10), entry["site"], font=font(16, bold=True), fill=theme["text"])
-        draw.text((tx, y+32), entry["login"], font=font(13), fill=theme["subtext"])
-        if entry.get("has_2fa"):
-            draw.text((card_x+card_w-80, y+26), "[2FA]", font=font(11), fill=theme["accent"])
-
-        y += h + 10
-        if y > SCREEN_Y + SCREEN_H - 80:
-            break
-
-    return img
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRANSITION FRAMES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def make_transition(img1, img2, steps=4):
-    """Generate blend frames between two screens."""
-    frames = []
-    for i in range(1, steps+1):
-        t = i / (steps + 1)
-        blended = Image.blend(img1.convert("RGB"), img2.convert("RGB"), t)
-        frames.append(blended)
-    return frames
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN: BUILD GIF
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ── Main ─────────────────────────────────────────────────────────────────────
 def main():
-    dark = THEMES["dark"]
-
-    print("Rendering screens...")
-    s1  = screen_splash(dark)
-    s2  = screen_login(dark)
-    s3  = screen_signup(dark)
-    s4  = screen_2fa_setup(dark)
-    s5  = screen_pin(dark)
-    s6  = screen_passwords(dark)
-    s7  = screen_add_password(dark)
-    s8  = screen_settings(dark)
-    s9  = screen_edit_password(dark)
-    s10 = screen_cyberpunk_passwords()
-    s11 = screen_glass_passwords()
-    s12 = screen_splash(dark)  # loop back
-
-    print("Building frame sequence...")
-
-    HOLD = 220   # centiseconds = 2.2 sec per main screen
-    HOLD_LONG = 300  # 3 sec for theme comparison screens
-    TRANS = 8    # centiseconds per transition frame
-
-    frames = []
-    durations = []
-
-    sequence = [
-        (s1,  HOLD),
-        *[(f, TRANS) for f in make_transition(s1, s2)],
-        (s2,  HOLD),
-        *[(f, TRANS) for f in make_transition(s2, s3)],
-        (s3,  HOLD),
-        *[(f, TRANS) for f in make_transition(s3, s4)],
-        (s4,  HOLD),
-        *[(f, TRANS) for f in make_transition(s4, s5)],
-        (s5,  HOLD),
-        *[(f, TRANS) for f in make_transition(s5, s6)],
-        (s6,  HOLD),
-        *[(f, TRANS) for f in make_transition(s6, s7)],
-        (s7,  HOLD),
-        *[(f, TRANS) for f in make_transition(s7, s8)],
-        (s8,  HOLD),
-        *[(f, TRANS) for f in make_transition(s8, s9)],
-        (s9,  HOLD),
-        *[(f, TRANS) for f in make_transition(s9, s10)],
-        (s10, HOLD_LONG),
-        *[(f, TRANS) for f in make_transition(s10, s11)],
-        (s11, HOLD_LONG),
-        *[(f, TRANS) for f in make_transition(s11, s12)],
-        (s12, HOLD),
-    ]
-
-    for img, dur in sequence:
-        frames.append(img.convert("P", palette=Image.ADAPTIVE, colors=256))
-        durations.append(dur * 10)  # PIL uses milliseconds
-
-    print(f"Saving GIF ({len(frames)} frames)...")
-    os.makedirs("assets", exist_ok=True)
-    frames[0].save(
-        "assets/demo.gif",
-        save_all=True,
-        append_images=frames[1:],
-        duration=durations,
-        loop=0,
-        optimize=False,
+    print("Rendering screens …")
+    screens=dict(
+        splash=Splash(), login=Login(), signup=Signup(),
+        pin=Pin(), passwords=Passwords(), add=AddPassword(),
+        edit=Settings(), settings=Settings(),
+        cyberpunk=CyberpunkPasswords(), glass=GlassPasswords()
     )
+    print("Building phone frames …")
+    frames={k:phone_frame(v) for k,v in screens.items()}
 
-    size_kb = os.path.getsize("assets/demo.gif") // 1024
-    print(f"Done! assets/demo.gif  ({size_kb} KB, {len(frames)} frames)")
+    HOLD=2800; HLNG=3600; TR=70
+    order=["splash","login","signup","pin","passwords","add","settings","cyberpunk","glass","splash"]
+    seq=[]
+    for i in range(len(order)-1):
+        a,b=order[i],order[i+1]
+        h=HLNG if b in("cyberpunk","glass") else HOLD
+        seq+=[(frames[a],h)]+[(f,TR) for f in trans(frames[a],frames[b],3)]
+    seq+=[(frames["splash"],HOLD)]
 
+    print(f"Quantizing {len(seq)} frames …")
+    gframes=[to_p(f) for f,_ in seq]
+    gdurs=[d for _,d in seq]
+    os.makedirs("assets",exist_ok=True)
+    gframes[0].save("assets/demo.gif",save_all=True,append_images=gframes[1:],
+                     duration=gdurs,loop=0,optimize=False)
+    kb=os.path.getsize("assets/demo.gif")//1024
+    print(f"Done  assets/demo.gif  ({kb} KB, {len(gframes)} frames)")
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
