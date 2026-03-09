@@ -12,10 +12,18 @@ class Settings:
     PERMISSIONS_OTP_LIST: list[str] = [x.strip() for x in _otp_list.split(",") if x.strip()]
 
     # JWT Settings
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "fallback_secret_key_for_development_only")
-    # ALGORITHM is intentionally NOT configurable via env to prevent algorithm confusion attacks
-    # (CVE-2024-33664 / CVE-2024-33663 class of vulnerabilities).
-    ALGORITHM: str = "HS256"
+    # JWT_SECRET_KEY must be set explicitly in every environment.
+    # No fallback is provided — if the variable is absent the server refuses
+    # to start, which prevents accidental use of a known/weak key.
+    # Generate a secure value with:
+    #   python -c "import secrets; print(secrets.token_hex(32))"
+    _jwt_raw: Optional[str] = os.getenv("JWT_SECRET_KEY")
+    if not _jwt_raw:
+        raise RuntimeError(
+            "JWT_SECRET_KEY environment variable is required and must not be empty. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    JWT_SECRET_KEY: str = _jwt_raw
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 

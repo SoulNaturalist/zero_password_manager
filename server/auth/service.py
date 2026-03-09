@@ -34,7 +34,11 @@ from .schemas import UserCreate
 
 _pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-_PASSWORD_RE = re.compile(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).{12,}$')
+# Enforce the same policy everywhere: 14+ chars, upper, lower, digit, special.
+# Must stay in sync with crud.validate_password_strength.
+_PASSWORD_RE = re.compile(
+    r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()\-_=+,.?":{}|<>]).{14,}$'
+)
 
 
 # ── Password hashing ──────────────────────────────────────────────────────────

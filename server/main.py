@@ -24,7 +24,7 @@ from webauthn.helpers import (
 )
 import random
 import asyncio
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -43,6 +43,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zero_vault")
 
 # Favicon Engine
+_DNS_TIMEOUT_SECONDS = 2  # hard cap on DNS resolution time
+
+
 def get_favicon_url(site_url: str) -> Optional[str]:
     if not site_url:
         return None
@@ -54,34 +57,40 @@ def get_favicon_url(site_url: str) -> Optional[str]:
         domain = parsed.netloc.lower()
         if not domain:
             domain = parsed.path.split('/')[0].lower()
-        
+
         # Remove 'www.'
         if domain.startswith('www.'):
             domain = domain[4:]
-            
+
         if not domain or '.' not in domain:
             return None
 
-        # SSRF Protection: Check that domain does not resolve to private/internal IP
+        # SSRF Protection: Check that domain does not resolve to private/internal IP.
+        # A 2-second timeout prevents DNS-based timing DoS where a slow resolver
+        # would block the worker indefinitely.
         import socket
         import ipaddress
         try:
-            # DNS lookup with basic SSRF protection
-            ip = socket.gethostbyname(domain)
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(_DNS_TIMEOUT_SECONDS)
+            try:
+                ip = socket.gethostbyname(domain)
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+
             ip_obj = ipaddress.ip_address(ip)
-            
-            # Explicitly block RFC1918 and other private ranges
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:
+
+            # Block RFC1918, loopback, link-local, and multicast ranges
+            if (ip_obj.is_private or ip_obj.is_loopback
+                    or ip_obj.is_link_local or ip_obj.is_multicast):
                 logger.warning(f"SSRF blocked: {domain} resolved to private/reserved IP {ip}")
                 return None
         except Exception as e:
             logger.error(f"DNS lookup failed for {domain}: {e}")
             return None
-            
-        # Priority 1: Clearbit (High Quality)
-        # Priority 2: Google (Fallback)
+
         return f"https://logo.clearbit.com/{domain}?size=128"
-    except:
+    except Exception:
         return None
 
 def validate_base64(data: str) -> bool:
@@ -97,16 +106,11 @@ def validate_base64(data: str) -> bool:
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
 
-# Startup Security Check
-if settings.JWT_SECRET_KEY == "fallback_secret_key_for_development_only":
-    if settings.ENVIRONMENT == "production":
-        logger.critical("SECURITY BREACH: JWT_SECRET_KEY must be configured in production! Shutting down.")
-        raise RuntimeError("JWT_SECRET_KEY check failed")
-    else:
-        logger.warning("Using development fallback for JWT_SECRET_KEY. DO NOT USE IN PRODUCTION.")
+# JWT_SECRET_KEY is validated inside Settings.__init__ — server will not start
+# if the variable is absent, so no redundant check is needed here.
 
-if not settings.TELEGRAM_BOT_TOKEN and settings.ENVIRONMENT == "production":
-    logger.warning("Production mode lacks TELEGRAM_BOT_TOKEN. Security alerts will not be sent.")
+if not settings.TELEGRAM_BOT_TOKEN:
+    logger.warning("TELEGRAM_BOT_TOKEN not set. Security alerts via Telegram will be disabled.")
 
 # Setup Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -226,11 +230,11 @@ def verify_hardened_otp(db: Session, user: models.User, otp: Optional[str], back
           response_model=schemas.UserResponse,
           status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")
-def register(request: Request,
-             user: schemas.UserCreate,
-             background_tasks: BackgroundTasks,
-             db: Session = Depends(get_db)):
-    # Timing Attack Mitigation
+async def register(request: Request,
+                   user: schemas.UserCreate,
+                   background_tasks: BackgroundTasks,
+                   db: Session = Depends(get_db)):
+    # Timing Attack Mitigation (non-blocking)
     await asyncio.sleep(random.uniform(0.1, 0.3))
     
     # User Enumeration & Policy Protection: Generic responses
@@ -283,10 +287,10 @@ async def login(request: Request,
     )
 
     user = db.query(models.User).filter(models.User.login == form_data.username).with_for_update().first()
-    
+
     if not user:
-        # Constant time-ish delay to prevent timing based enumeration
-        time.sleep(1)
+        # Non-blocking delay to prevent user-enumeration timing attacks
+        await asyncio.sleep(random.uniform(0.1, 0.3))
         crud.audit_event(db, None, "login_failed", {"login": form_data.username, "reason": "user_not_found"}, ip=request.client.host, background_tasks=background_tasks)
         raise common_error
 
@@ -310,7 +314,7 @@ async def login(request: Request,
             crud.audit_event(db, user.id, "account_locked", {"reason": "too_many_login_failures"}, background_tasks=background_tasks)
         
         db.commit()
-        time.sleep(1)
+        await asyncio.sleep(random.uniform(0.1, 0.3))
         crud.audit_event(db, user.id, "login_failed", {"reason": "invalid_password"}, ip=request.client.host, background_tasks=background_tasks)
         raise common_error
 
@@ -358,39 +362,41 @@ def setup_2fa(current_user: models.User = Depends(auth.get_current_user),
 
 @app.post("/2fa/confirm")
 @limiter.limit("5/minute")
-def confirm_2fa(request: Request, 
-                request_data: schemas.TOTPConfirmRequest,
-                background_tasks: BackgroundTasks,
-                db: Session = Depends(get_db)):
-    # If we have user_id in request, use it (for registration flow)
-    # Otherwise try to get from current_user (for logged in users)
-    user_id = request_data.user_id
-    user = None
-    if user_id:
-        user = db.query(models.User).get(user_id)
-    
-    if not user:
-        # Fallback to current authenticated user
-        try:
-            user = auth.get_current_user(request.headers.get("Authorization", "").replace("Bearer ", ""), db)
-        except:
-             raise HTTPException(status_code=401, detail="Authentication required")
-
-    if not user or not user.totp_secret:
+async def confirm_2fa(
+    request: Request,
+    request_data: schemas.TOTPConfirmRequest,
+    background_tasks: BackgroundTasks,
+    # IDOR fix: require JWT auth — endpoint always acts on the authenticated
+    # user, making it impossible to enable 2FA for an arbitrary user_id.
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA already enabled")
+    if not current_user.totp_secret:
         raise HTTPException(status_code=400, detail="2FA not set up")
 
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(request_data.code):
-        crud.audit_event(db, user.id, "2fa_confirm_failed", {"reason": "invalid_otp"}, ip=request.client.host, background_tasks=background_tasks)
+    totp = pyotp.TOTP(current_user.totp_secret)
+
+    # Replay-protection: reject a code from a window that was already used
+    current_timecode = int(totp.timecode(datetime.now(timezone.utc)))
+    if current_timecode <= current_user.last_otp_ts:
+        await asyncio.sleep(1)
+        raise HTTPException(status_code=400, detail="OTP already used")
+
+    if not totp.verify(request_data.code, valid_window=1):
+        await asyncio.sleep(1)
+        crud.audit_event(db, current_user.id, "2fa_confirm_failed",
+                         {"reason": "invalid_otp"}, ip=request.client.host,
+                         background_tasks=background_tasks)
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    # Set initial timecode to prevent immediate reuse of setup code
-    user.last_otp_ts = int(totp.timecode(datetime.now(timezone.utc)))
-    user.totp_enabled = True
+    current_user.last_otp_ts = current_timecode
+    current_user.totp_enabled = True
     db.commit()
 
-    crud.audit_event(db, user.id, "2fa_enabled", ip=request.client.host, background_tasks=background_tasks)
-
+    crud.audit_event(db, current_user.id, "2fa_enabled",
+                     ip=request.client.host, background_tasks=background_tasks)
     return {"status": "2fa enabled"}
 
 
@@ -433,25 +439,30 @@ def update_profile(request: Request,
 
 @app.post("/refresh")
 @limiter.limit("5/minute")
-def refresh_token(request: Request, payload: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    token = payload.get("refresh_token")
-    if not token:
-        crud.audit_event(db, None, "refresh_token_failed", {"reason": "token_missing"}, ip=request.client.host, background_tasks=background_tasks)
-        raise HTTPException(status_code=400, detail="Refresh token missing")
-
+def refresh_token(
+    request: Request,
+    payload: schemas.RefreshRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     try:
-        data = auth.jwt.decode(token, auth.SECRET_KEY,
-                              algorithms=[auth.ALGORITHM])
-        if data.get("type") != "refresh":
-            crud.audit_event(db, data.get("sub"), "refresh_token_failed", {"reason": "invalid_token_type"}, ip=request.client.host, background_tasks=background_tasks)
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user_id = data.get("sub")
+        # decode_token uses PyJWT with algorithms=["HS256"] — no algorithm confusion
+        data = auth.decode_token(payload.refresh_token)
     except Exception:
-        crud.audit_event(db, None, "refresh_token_failed", {"reason": "invalid_token"}, ip=request.client.host, background_tasks=background_tasks)
+        crud.audit_event(db, None, "refresh_token_failed", {"reason": "invalid_token"},
+                         ip=request.client.host, background_tasks=background_tasks)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
+    if data.get("type") != "refresh":
+        crud.audit_event(db, data.get("sub"), "refresh_token_failed",
+                         {"reason": "invalid_token_type"},
+                         ip=request.client.host, background_tasks=background_tasks)
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    user_id = data.get("sub")
     new_access_token = auth.create_access_token(data={"sub": user_id})
-    crud.audit_event(db, user_id, "token_refreshed", ip=request.client.host, background_tasks=background_tasks)
+    crud.audit_event(db, user_id, "token_refreshed", ip=request.client.host,
+                     background_tasks=background_tasks)
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 
@@ -692,8 +703,9 @@ async def webauthn_register_options(
 async def webauthn_register_verify(
     request: Request,
     verify_data: schemas.WebAuthnRegistrationVerify,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth.get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     challenge_data = crud.get_challenge(db, verify_data.registration_response.get("challenge"))
     if not challenge_data or challenge_data.type != "registration":
@@ -762,7 +774,8 @@ async def webauthn_login_options(
 async def webauthn_login_verify(
     request: Request,
     verify_data: schemas.WebAuthnLoginVerify,
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     common_error = HTTPException(status_code=400, detail="Authentication failed")
 
@@ -778,8 +791,8 @@ async def webauthn_login_verify(
     db_credential = crud.get_webauthn_credential_by_id(db, credential_id)
     
     if not db_credential:
-        # Prevent credential enumeration
-        time.sleep(1)
+        # Non-blocking delay to prevent credential-enumeration timing attacks
+        await asyncio.sleep(random.uniform(0.1, 0.3))
         raise common_error
 
     user = db.query(models.User).filter(models.User.id == db_credential.user_id).first()
