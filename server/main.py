@@ -129,8 +129,28 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Strict-Transport-Security"] = (
-        "max-age=63072000; includeSubDomains"
+        "max-age=63072000; includeSubDomains; preload"
     )
+    # Prevent information leakage via Referer header
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Restrict access to sensitive browser APIs
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=()"
+    )
+    # Content-Security-Policy — block XSS and unwanted resource loading
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' https://logo.clearbit.com data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    # Remove potentially leaky headers added by underlying framework/server
+    response.headers.pop("Server", None)
+    response.headers.pop("X-Powered-By", None)
     return response
 
 
@@ -623,11 +643,17 @@ def read_password_history(request: Request,
     return history
 
 
+_MIN_GEN_LENGTH = 8
+_MAX_GEN_LENGTH = 256
+
+
 @app.get("/api/generate-password")
 @limiter.limit("10/minute")
 def generate_password(request: Request, length: int = 24):
+    # Clamp to safe range to prevent CPU/memory exhaustion (DoS).
+    length = max(_MIN_GEN_LENGTH, min(length, _MAX_GEN_LENGTH))
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
-    password = ''.join(secrets.choice(alphabet) for i in range(length))
+    password = "".join(secrets.choice(alphabet) for _ in range(length))
     return {"password": password}
 
 

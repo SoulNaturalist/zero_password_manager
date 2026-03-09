@@ -6,6 +6,20 @@ from fastapi import BackgroundTasks, HTTPException, status
 from . import models, schemas, auth
 from .config import settings
 
+_TELEGRAM_ESCAPE = str.maketrans({
+    "_": r"\_", "*": r"\*", "[": r"\[", "]": r"\]",
+    "(": r"\(", ")": r"\)", "~": r"\~", "`": r"\`",
+    ">": r"\>", "#": r"\#", "+": r"\+", "-": r"\-",
+    "=": r"\=", "|": r"\|", "{": r"\{", "}": r"\}",
+    ".": r"\.", "!": r"\!",
+})
+
+
+def _escape_telegram(value: str) -> str:
+    """Escape user-supplied text for Telegram MarkdownV2 to prevent injection."""
+    return str(value).translate(_TELEGRAM_ESCAPE)
+
+
 async def send_telegram_message(chat_id: str, text: str):
     """Sends a security alert to Telegram (background task)."""
     if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
@@ -16,7 +30,7 @@ async def send_telegram_message(chat_id: str, text: str):
             await client.post(url, json={
                 "chat_id": chat_id,
                 "text": text,
-                "parse_mode": "Markdown"
+                "parse_mode": "MarkdownV2",
             })
         except Exception as e:
             import logging
@@ -39,11 +53,22 @@ def audit_event(db: Session, user_id: int, event: str, meta: dict = None, ip: st
             if "site_hash" in meta:
                  safe_meta["site_hash"] = meta["site_hash"]
         
-        user_info = f"User ID: {user_id}"
-        ip_info = f"IP: {ip}" if ip else ""
-        meta_info = f"Details: {safe_meta}" if safe_meta else ""
-        
-        message = f"🚨 *NK3 Security Alert*\n*Event*: `{event}`\n*User*: `{user_info}`\n{ip_info}\n{meta_info}"
+        # Escape all user-controlled fields before embedding in MarkdownV2 message
+        # to prevent Telegram Markdown injection.
+        safe_event = _escape_telegram(event)
+        safe_uid = _escape_telegram(str(user_id))
+        safe_ip = _escape_telegram(str(ip)) if ip else ""
+        safe_meta_str = _escape_telegram(str(safe_meta)) if safe_meta else ""
+
+        ip_line = f"IP: {safe_ip}\n" if safe_ip else ""
+        meta_line = f"Details: {safe_meta_str}\n" if safe_meta_str else ""
+
+        message = (
+            "🚨 *Security Alert*\n"
+            f"*Event*: `{safe_event}`\n"
+            f"*User ID*: `{safe_uid}`\n"
+            f"{ip_line}{meta_line}"
+        )
         background_tasks.add_task(send_telegram_message, user.telegram_chat_id, message)
 
 

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pyotp
 from fastapi import APIRouter, Depends, Request
@@ -122,29 +122,35 @@ def setup_2fa(
 async def confirm_2fa(
     request: Request,
     body: TOTPConfirmRequest,
+    # IDOR fix: the caller must be the authenticated owner of the account.
+    # Previously any unauthenticated request could pass an arbitrary user_id
+    # and attempt to enable 2FA on someone else's account.
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    user = db.get(User, body.user_id)
-    if not user:
-        await asyncio.sleep(1)
-        from .exceptions import InvalidCredentials
-        raise InvalidCredentials()
-
-    if user.totp_enabled:
+    if current_user.totp_enabled:
         raise TwoFAAlreadyEnabled()
-    if not user.totp_secret:
+    if not current_user.totp_secret:
         raise TwoFANotSetUp()
 
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(body.code):
+    totp = pyotp.TOTP(current_user.totp_secret)
+
+    # Replay-protection: reject a code from a window already used.
+    current_timecode = totp.timecode(datetime.now(timezone.utc))
+    if current_timecode <= current_user.last_otp_ts:
         await asyncio.sleep(1)
         raise InvalidOTPCode()
 
-    user.last_otp_ts = totp.timecode(datetime.utcnow())
-    user.totp_enabled = True
+    if not totp.verify(body.code, valid_window=1):
+        await asyncio.sleep(1)
+        raise InvalidOTPCode()
+
+    # Lock in the timecode immediately so the same code cannot be reused.
+    current_user.last_otp_ts = current_timecode
+    current_user.totp_enabled = True
     db.commit()
 
-    audit(db, user.id, "2fa_enabled")
+    audit(db, current_user.id, "2fa_enabled")
     return {"status": "2fa enabled"}
 
 

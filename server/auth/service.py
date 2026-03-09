@@ -1,13 +1,14 @@
 import base64
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import jwt as pyjwt
 import pyotp
 from argon2.low_level import Type as Argon2Type, hash_secret_raw
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from jose import JWTError, jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -55,26 +56,33 @@ def is_password_strong(password: str) -> bool:
 def create_access_token(data: dict) -> str:
     payload = {
         **data,
-        "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         "type": "access",
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
+    return pyjwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 
 def create_refresh_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
-        "exp": datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        "exp": datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         "type": "refresh",
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
+    return pyjwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 
 def decode_token(token: str) -> dict:
-    """Decode and verify a JWT. Raises InvalidRefreshToken on any failure."""
+    """Decode and verify a JWT. Raises InvalidRefreshToken on any failure.
+    Algorithm is hardcoded to HS256 to prevent algorithm confusion attacks.
+    """
     try:
-        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except JWTError:
+        return pyjwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=["HS256"],
+            options={"require": ["exp", "sub"]},
+        )
+    except PyJWTError:
         raise InvalidRefreshToken()
 
 
@@ -141,7 +149,7 @@ def verify_hardened_otp(db: Session, user: User, otp: Optional[str]) -> None:
         raise OTPInvalid()
 
     # Replay protection: each 30-second window can only be used once
-    current_timecode = totp.timecode(datetime.utcnow())
+    current_timecode = totp.timecode(datetime.now(timezone.utc))
     if current_timecode <= user.last_otp_ts:
         raise OTPReplay()
 
