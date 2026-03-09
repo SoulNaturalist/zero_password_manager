@@ -41,11 +41,22 @@ class UserCreate(UserBase):
     telegram_chat_id: Optional[str] = None
 
 class UserResponse(UserBase):
+    """Used only for /register — includes one-time TOTP setup fields."""
     id: int
     salt: str  # Client needs salt for KDF
     telegram_chat_id: Optional[str] = None
     totp_secret: Optional[str] = None
     totp_uri: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ProfileResponse(UserBase):
+    """Used for /profile GET and POST — never exposes totp_secret."""
+    id: int
+    salt: str
+    telegram_chat_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -140,8 +151,15 @@ class TOTPSetupResponse(BaseModel):
     otp_uri: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+
 class TOTPConfirmRequest(BaseModel):
-    user_id: Optional[int] = None
     code: str
 
 

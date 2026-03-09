@@ -414,13 +414,13 @@ async def confirm_2fa(
     return {"status": "2fa enabled"}
 
 
-@app.get("/profile", response_model=schemas.UserResponse)
+@app.get("/profile", response_model=schemas.ProfileResponse)
 def get_profile(current_user: models.User = Depends(auth.get_current_user)):
     """Get current user profile info."""
     return current_user
 
 
-@app.post("/profile/update", response_model=schemas.UserResponse)
+@app.post("/profile/update", response_model=schemas.ProfileResponse)
 def update_profile(request: Request,
                    background_tasks: BackgroundTasks,
                    user_update: schemas.ProfileUpdate,
@@ -472,6 +472,14 @@ def refresh_token(
                          {"reason": "invalid_token_type"},
                          ip=request.client.host, background_tasks=background_tasks)
         raise HTTPException(status_code=401, detail="Invalid token type")
+
+    # Reject refresh tokens that were explicitly revoked (e.g. after logout).
+    jti = data.get("jti")
+    if jti and crud.is_token_blacklisted(db, jti):
+        crud.audit_event(db, data.get("sub"), "refresh_token_failed",
+                         {"reason": "token_revoked"},
+                         ip=request.client.host, background_tasks=background_tasks)
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     user_id = data.get("sub")
     new_access_token = auth.create_access_token(data={"sub": user_id})
@@ -891,14 +899,17 @@ async def revoke_device_endpoint(
 async def logout(
     request: Request,
     background_tasks: BackgroundTasks,
+    body: Optional[schemas.LogoutRequest] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Revoke the current access token by adding its jti to the blacklist.
+    """Revoke the current access token and, if provided, the refresh token.
 
-    After this call the token is rejected by get_current_user even if it has
-    not yet expired.  The client should also discard its refresh token.
+    Both token JTIs are added to the blacklist so they are rejected even before
+    their exp timestamps.  Clients should pass their refresh_token in the body
+    to ensure full session invalidation.
     """
+    # Blacklist access token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = auth.decode_token(token)
@@ -914,6 +925,25 @@ async def logout(
     except Exception:
         # Token was already invalid; still return 200 so the client can clean up
         pass
+
+    # Also blacklist the refresh token if the client sent it.
+    # This closes the window where a stolen refresh token could be used
+    # after the user explicitly logs out.
+    if body and body.refresh_token:
+        try:
+            rt_payload = auth.decode_token(body.refresh_token)
+            if rt_payload.get("type") == "refresh":
+                rt_jti = rt_payload.get("jti")
+                if rt_jti:
+                    rt_exp_ts = rt_payload.get("exp")
+                    rt_expires_at = (
+                        datetime.fromtimestamp(rt_exp_ts, tz=timezone.utc)
+                        if rt_exp_ts
+                        else datetime.now(timezone.utc)
+                    )
+                    crud.blacklist_token(db, rt_jti, rt_expires_at)
+        except Exception:
+            pass  # Invalid refresh token — nothing to revoke
 
     crud.audit_event(
         db, current_user.id, "logout",
