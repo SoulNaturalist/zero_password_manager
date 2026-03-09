@@ -1,65 +1,92 @@
-import os
-import secrets
 import base64
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+
+import pyotp
+from argon2.low_level import Type as Argon2Type, hash_secret_raw
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from argon2.low_level import hash_secret_raw, Type as Argon2Type
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from .database import get_db
+
 from . import models
 from .config import settings
+from .database import get_db
 
-# Security Configuration
-SECRET_KEY = settings.JWT_SECRET_KEY
-ALGORITHM = settings.ALGORITHM
-ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
-REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS
-
-# Argon2 / AES Configuration (Industry Standard 2024-2025)
-ARGON2_TIME_COST = 3
-ARGON2_MEMORY_COST = 65536
+# ── Crypto constants ──────────────────────────────────────────────────────────
+# Argon2id parameters (OWASP recommended minimums, 2024)
+ARGON2_TIME_COST   = 3
+ARGON2_MEMORY_COST = 65_536  # 64 MB
 ARGON2_PARALLELISM = 1
-ARGON2_HASH_LEN = 32
-AES_NONCE_LEN = 12
+ARGON2_HASH_LEN    = 32
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+AES_NONCE_LEN = 12  # 96-bit nonce for AES-256-GCM
 
+# ── Internal helpers ──────────────────────────────────────────────────────────
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire, "type": "access"})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+_pwd_context   = CryptContext(schemes=["argon2"], deprecated="auto")
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
-def create_refresh_token(user_id: int):
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {"sub": str(user_id), "exp": expire, "type": "refresh"}
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+# ── Password hashing ──────────────────────────────────────────────────────────
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return _pwd_context.verify(plain, hashed)
 
 
-# Crypto Utils (Corrected AES-GCM tag handling)
+def hash_password(plain: str) -> str:
+    return _pwd_context.hash(plain)
+
+
+# ── JWT tokens ────────────────────────────────────────────────────────────────
+
+def create_access_token(data: dict) -> str:
+    payload = {
+        **data,
+        "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "type": "access",
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def create_refresh_token(user_id: int) -> str:
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        "type": "refresh",
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_token(token: str) -> dict:
+    """Decode and verify a JWT. Raises HTTPException on any failure."""
+    try:
+        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# ── Encryption helpers (used only if server-side crypto is needed) ─────────────
+# Note: this app is zero-knowledge — the server receives already-encrypted blobs.
+# These helpers exist for key derivation / future use.
+
 def generate_salt() -> str:
+    """Return a base64-encoded 16-byte random salt."""
     return base64.b64encode(secrets.token_bytes(16)).decode()
 
+
 def derive_key(password: str, salt_b64: str) -> bytes:
-    salt = base64.b64decode(salt_b64)
+    """Derive a 256-bit key from a password using Argon2id."""
     return hash_secret_raw(
         secret=password.encode(),
-        salt=salt,
+        salt=base64.b64decode(salt_b64),
         time_cost=ARGON2_TIME_COST,
         memory_cost=ARGON2_MEMORY_COST,
         parallelism=ARGON2_PARALLELISM,
@@ -68,52 +95,83 @@ def derive_key(password: str, salt_b64: str) -> bytes:
     )
 
 
-def encrypt_data(plaintext: str, key: bytes) -> str:
-    """Corrected: Returns base64(nonce + ciphertext + tag)"""
+def encrypt(plaintext: str, key: bytes) -> str:
+    """AES-256-GCM encrypt. Returns base64(nonce ‖ ciphertext ‖ tag)."""
     nonce = secrets.token_bytes(AES_NONCE_LEN)
-    aesgcm = AESGCM(key)
-    # encrypt returns ciphertext + tag
-    ciphertext_with_tag = aesgcm.encrypt(nonce, plaintext.encode(), None)
+    ciphertext_with_tag = AESGCM(key).encrypt(nonce, plaintext.encode(), None)
     return base64.b64encode(nonce + ciphertext_with_tag).decode()
 
 
-def decrypt_data(encrypted_payload_b64: str, key: bytes) -> str:
-    """Corrected: Decrypts base64(nonce + ciphertext + tag) with validation"""
+def decrypt(payload_b64: str, key: bytes) -> str:
+    """AES-256-GCM decrypt. Raises HTTP 400 on any failure (never leaks internals)."""
     try:
-        payload = base64.b64decode(encrypted_payload_b64)
-        if len(payload) < AES_NONCE_LEN + 16:  # nonce (12) + min tag (16)
+        payload = base64.b64decode(payload_b64)
+        if len(payload) < AES_NONCE_LEN + 16:
             raise ValueError("Payload too short")
-
-        nonce = payload[:AES_NONCE_LEN]
-        ciphertext_with_tag = payload[AES_NONCE_LEN:]
-        aesgcm = AESGCM(key)
-        return aesgcm.decrypt(nonce, ciphertext_with_tag, None).decode()
+        nonce, ciphertext_with_tag = payload[:AES_NONCE_LEN], payload[AES_NONCE_LEN:]
+        return AESGCM(key).decrypt(nonce, ciphertext_with_tag, None).decode()
     except Exception:
-        # SECURITY: never expose internal decryption errors to the caller
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Decryption failed")
+
+
+# ── 2FA / OTP ─────────────────────────────────────────────────────────────────
+
+def verify_hardened_otp(db: Session, user: models.User, otp: Optional[str]) -> None:
+    """
+    Verify a TOTP code for hardened (OTP-gated) operations.
+
+    Raises HTTPException if:
+      - 2FA is enabled but no OTP was supplied
+      - the OTP code is invalid
+      - the OTP time-window was already used (replay attack)
+    """
+    if not user.totp_enabled:
+        return
+
+    if not otp:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Decryption failed"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OTP_REQUIRED",
+            headers={"X-2FA-Required": "true"},
         )
 
-# Auth Dependency
-async def get_current_user(token: str = Depends(oauth2_scheme),
-                           db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    totp = pyotp.TOTP(user.totp_secret)
 
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
+    if not totp.verify(otp, valid_window=1):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="INVALID_OTP")
+
+    # Replay protection: each time-window can only be used once
+    current_timecode = totp.timecode(datetime.utcnow())
+    if current_timecode <= user.last_otp_ts:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="OTP_REPLAY_DETECTED")
+
+    user.last_otp_ts = current_timecode
+    db.commit()
+
+
+# ── FastAPI dependency ────────────────────────────────────────────────────────
+
+async def get_current_user(
+    token: str = Depends(_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> models.User:
+    """Resolve a Bearer JWT to a User row. Raises 401 on any failure."""
+    payload = decode_token(token)
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     user = db.query(models.User).filter(models.User.id == int(user_id)).first()
-    if user is None:
-        raise credentials_exception
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return user
