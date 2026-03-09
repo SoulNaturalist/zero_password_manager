@@ -1,6 +1,7 @@
 import base64
 import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -60,6 +61,7 @@ def is_password_strong(password: str) -> bool:
 def create_access_token(data: dict) -> str:
     payload = {
         **data,
+        "jti": str(uuid.uuid4()),  # unique ID — enables per-token revocation
         "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         "type": "access",
     }
@@ -69,6 +71,7 @@ def create_access_token(data: dict) -> str:
 def create_refresh_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
+        "jti": str(uuid.uuid4()),  # unique ID — enables per-token revocation
         "exp": datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         "type": "refresh",
     }

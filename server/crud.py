@@ -394,3 +394,37 @@ def get_history(db: Session, user_id: int, background_tasks: BackgroundTasks = N
 
 def get_logs(db: Session, user_id: int):
     return db.query(models.Audit).filter(models.Audit.user_id == user_id).order_by(models.Audit.created_at.desc()).limit(100).all()
+
+
+# ── JWT Revocation / Token Blacklist ──────────────────────────────────────────
+
+def blacklist_token(db: Session, jti: str, expires_at) -> None:
+    """Add a token's jti to the blacklist so it can no longer be used.
+
+    Performs lazy cleanup of expired rows on each call to prevent unbounded
+    growth — no separate cron job required.
+    """
+    from datetime import datetime, timezone
+
+    # Prune expired entries first (lazy GC)
+    db.query(models.TokenBlacklist).filter(
+        models.TokenBlacklist.expires_at < datetime.now(timezone.utc)
+    ).delete(synchronize_session=False)
+
+    # Only insert if not already present (idempotent)
+    existing = db.query(models.TokenBlacklist).filter(
+        models.TokenBlacklist.jti == jti
+    ).first()
+    if not existing:
+        db.add(models.TokenBlacklist(jti=jti, expires_at=expires_at))
+
+    db.commit()
+
+
+def is_token_blacklisted(db: Session, jti: str) -> bool:
+    """Return True if the given jti has been revoked."""
+    return (
+        db.query(models.TokenBlacklist)
+        .filter(models.TokenBlacklist.jti == jti)
+        .first()
+    ) is not None

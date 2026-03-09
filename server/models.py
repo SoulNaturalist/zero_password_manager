@@ -114,6 +114,21 @@ class PasswordHistory(Base):
     user = relationship("User", back_populates="history")
 
 
+class TokenBlacklist(Base):
+    """JWT revocation store.
+
+    When a user calls /logout the token's ``jti`` claim is written here.
+    get_current_user checks this table so revoked tokens are rejected even
+    before their ``exp`` timestamp.  Rows are pruned lazily on each insert.
+    """
+    __tablename__ = "token_blacklist"
+
+    id = Column(Integer, primary_key=True, index=True)
+    jti = Column(String(36), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class Audit(Base):
     __tablename__ = "audit"
 

@@ -1,8 +1,7 @@
 import base64
+import hmac
 import secrets
 import string
-import time
-import hmac
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 
@@ -106,11 +105,26 @@ def validate_base64(data: str) -> bool:
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
 
+# ── Startup security assertions ───────────────────────────────────────────────
 # JWT_SECRET_KEY is validated inside Settings.__init__ — server will not start
-# if the variable is absent, so no redundant check is needed here.
+# if the variable is absent.
 
 if not settings.TELEGRAM_BOT_TOKEN:
     logger.warning("TELEGRAM_BOT_TOKEN not set. Security alerts via Telegram will be disabled.")
+
+# WebAuthn: in production the relying-party origin MUST be HTTPS and MUST NOT
+# be localhost. A misconfigured origin allows a phishing site to accept
+# authenticator responses that were meant for the real server.
+if settings.ENVIRONMENT == "production":
+    if not settings.EXPECTED_ORIGIN.startswith("https://"):
+        raise RuntimeError(
+            f"EXPECTED_ORIGIN must use HTTPS in production (got: {settings.EXPECTED_ORIGIN!r})"
+        )
+    if "localhost" in settings.EXPECTED_ORIGIN or "127.0.0.1" in settings.EXPECTED_ORIGIN:
+        raise RuntimeError(
+            "EXPECTED_ORIGIN must not point to localhost in production. "
+            f"Got: {settings.EXPECTED_ORIGIN!r}"
+        )
 
 # Setup Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -870,6 +884,43 @@ async def revoke_device_endpoint(
     crud.revoke_device(db, device_id, current_user.id)
     crud.audit_event(db, current_user.id, "device_revoked", {"internal_device_id": device_id}, background_tasks=background_tasks)
     return {"status": "success"}
+
+
+@app.post("/logout")
+@limiter.limit("10/minute")
+async def logout(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the current access token by adding its jti to the blacklist.
+
+    After this call the token is rejected by get_current_user even if it has
+    not yet expired.  The client should also discard its refresh token.
+    """
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    try:
+        payload = auth.decode_token(token)
+        jti = payload.get("jti")
+        if jti:
+            exp_ts = payload.get("exp")
+            expires_at = (
+                datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+                if exp_ts
+                else datetime.now(timezone.utc)
+            )
+            crud.blacklist_token(db, jti, expires_at)
+    except Exception:
+        # Token was already invalid; still return 200 so the client can clean up
+        pass
+
+    crud.audit_event(
+        db, current_user.id, "logout",
+        ip=request.client.host,
+        background_tasks=background_tasks,
+    )
+    return {"status": "logged out"}
 
 
 @app.get("/health")
