@@ -97,24 +97,36 @@
         }
 
         .logo {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
+            /* Slightly smaller logo */
             font-weight: 800;
             letter-spacing: -1px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
+            /* Tight gap between icon and text */
         }
 
-        .logo span {
+        .logo span.brand {
+            color: var(--text);
+        }
+
+        .logo span.accent {
             color: var(--accent);
+            margin-left: 0px;
+            /* Ensure no extra space */
         }
 
         .btn-github {
-            padding: 0.8rem 1.5rem;
+            padding: 0.5rem 1.2rem;
+            /* Compact padding */
+            font-size: 0.9rem;
+            /* Smaller font */
             background: var(--primary);
             color: white;
             text-decoration: none;
-            border-radius: 12px;
+            border-radius: 10px;
+            /* Slightly tighter radius */
             font-weight: 600;
             transition: all 0.3s ease;
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -317,7 +329,10 @@
     <div class="scanline"></div>
 
     <nav>
-        <div class="logo">🔐 ZERO<span>PASS</span></div>
+        <div class="logo">
+            <span>🔐</span>
+            <span class="brand">ZERO<span class="accent">PASS</span></span>
+        </div>
         <a href="https://github.com/SoulNaturalist/zero_password_manager" class="btn-github">GitHub Repository</a>
     </nav>
 

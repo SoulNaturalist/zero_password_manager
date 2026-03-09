@@ -48,6 +48,7 @@ class PasswordResponse(PasswordBase):
     id: int
     encrypted_payload: str
     notes_encrypted: Optional[str] = None
+    favicon_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -60,6 +61,7 @@ class HistoryResponse(BaseModel):
     action_type: str
     action_details: Dict[str, Any]
     site_url: str
+    favicon_url: Optional[str] = None
     created_at: datetime
 
     class Config:

@@ -16,6 +16,33 @@ from sqlalchemy.orm import Session
 from . import auth, crud, models, schemas
 from .config import settings
 from .database import engine, get_db
+import urllib.parse
+
+# Favicon Engine
+def get_favicon_url(site_url: str) -> Optional[str]:
+    if not site_url:
+        return None
+    try:
+        # Clean URL and extract domain
+        if not site_url.startswith(('http://', 'https://')):
+            site_url = 'https://' + site_url
+        parsed = urllib.parse.urlparse(site_url)
+        domain = parsed.netloc.lower()
+        if not domain:
+            domain = parsed.path.split('/')[0].lower()
+        
+        # Remove 'www.'
+        if domain.startswith('www.'):
+            domain = domain[4:]
+            
+        if not domain or '.' not in domain:
+            return None
+            
+        # Priority 1: Clearbit (High Quality)
+        # Priority 2: Google (Fallback)
+        return f"https://logo.clearbit.com/{domain}?size=128"
+    except:
+        return None
 
 
 # Initialize database
@@ -229,7 +256,14 @@ def read_passwords(request: Request,
     # OTP-Gated if configured
     if "vault_read" in settings.PERMISSIONS_OTP_LIST:
         verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
-    return crud.get_passwords(db, user_id=current_user.id)
+    
+    db_passwords = crud.get_passwords(db, user_id=current_user.id)
+    
+    # Inject favicon URLs dynamically
+    for p in db_passwords:
+        p.favicon_url = get_favicon_url(p.site_url)
+        
+    return db_passwords
 
 
 @app.post("/passwords",
@@ -247,7 +281,9 @@ def create_password(request: Request,
     if len(password.encrypted_payload) > MAX_PAYLOAD_SIZE:
         raise HTTPException(status_code=400, detail="Payload too large")
 
-    return crud.create_password(db, password=password, user_id=current_user.id)
+    new_pwd = crud.create_password(db, password=password, user_id=current_user.id)
+    new_pwd.favicon_url = get_favicon_url(new_pwd.site_url)
+    return new_pwd
 
 
 @app.get("/audit", response_model=List[schemas.AuditResponse])
@@ -258,6 +294,23 @@ def read_audit_logs(request: Request,
     if "audit_read" in settings.PERMISSIONS_OTP_LIST:
         verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
     return crud.get_logs(db, user_id=current_user.id)
+
+
+@app.get("/passwords/history", response_model=List[schemas.HistoryResponse])
+def read_password_history(request: Request,
+                          current_user: models.User = Depends(auth.get_current_user),
+                          db: Session = Depends(get_db)):
+    # OTP-Gated if configured
+    if "history_read" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
+        
+    history = crud.get_history(db, user_id=current_user.id)
+    
+    # Inject favicon URLs
+    for h in history:
+        h.favicon_url = get_favicon_url(h.site_url)
+        
+    return history
 
 
 @app.get("/api/generate-password")
