@@ -7,10 +7,46 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shimmer/shimmer.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
-import '../main.dart'; // Импортируйте routeObserver
+import '../main.dart';
 import 'edit_password_screen.dart';
+import 'folders_screen.dart';
 import '../config/app_config.dart';
 import '../utils/api_service.dart';
+import '../utils/folder_service.dart';
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+Color _colorFromHex(String hex) {
+  try {
+    return Color(int.parse(hex.replaceFirst('#', '0xFF')));
+  } catch (_) {
+    return const Color(0xFF5D52D2);
+  }
+}
+
+IconData _iconFromName(String name) {
+  const map = {
+    'folder': Icons.folder,
+    'work': Icons.work,
+    'home': Icons.home,
+    'lock': Icons.lock,
+    'star': Icons.star,
+    'favorite': Icons.favorite,
+    'shopping_cart': Icons.shopping_cart,
+    'school': Icons.school,
+    'code': Icons.code,
+    'gaming': Icons.sports_esports,
+    'bank': Icons.account_balance,
+    'email': Icons.email,
+    'cloud': Icons.cloud,
+    'social': Icons.people,
+    'crypto': Icons.currency_bitcoin,
+    'vpn_key': Icons.vpn_key,
+  };
+  return map[name] ?? Icons.folder;
+}
+
+// ── screen ───────────────────────────────────────────────────────────────────
 
 class PasswordsScreen extends StatefulWidget {
   const PasswordsScreen({super.key});
@@ -22,18 +58,24 @@ class PasswordsScreen extends StatefulWidget {
 class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   List<Map<String, dynamic>> passwords = [];
   List<Map<String, dynamic>> searchResults = [];
+  List<Map<String, dynamic>> folders = [];
+
   bool isLoading = true;
   bool isImporting = false;
   bool _hideSeedPhrases = false;
   bool isSearching = false;
   bool isSearchMode = false;
+
+  // null = show all, int = show folder
+  int? _selectedFolderId;
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _loadPasswords();
+    _loadAll();
   }
 
   @override
@@ -52,16 +94,24 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   @override
   void didPopNext() {
-    // Вызывается при возвращении на этот экран
-    _loadPasswords();
+    _loadAll();
+  }
+
+  // ── data loading ────────────────────────────────────────────────────────────
+
+  Future<void> _loadAll() async {
+    await Future.wait([_loadPasswords(), _loadFolders()]);
+  }
+
+  Future<void> _loadFolders() async {
+    final result = await FolderService.getFolders();
+    if (mounted) {
+      setState(() => folders = result);
+    }
   }
 
   Future<void> _loadPasswords() async {
-    setState(() {
-      isLoading = true;
-    });
-
-    // Загружаем настройки перед загрузкой паролей
+    setState(() => isLoading = true);
     await _loadSeedPhraseSettings();
 
     try {
@@ -75,57 +125,52 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
       if (response.statusCode == 200) {
         final List data = json.decode(response.body);
-        print('DEBUG: Получены пароли от сервера:');
-        for (var item in data) {
-          print('DEBUG: ${item['site_url']} - favicon_url: ${item['favicon_url']}');
-          
-          // Специальная отладка для MetaMask
-          if (item['site_url'] != null && item['site_url'].toString().toLowerCase().contains('metamask')) {
-            print('DEBUG: METAMASK НАЙДЕН!');
-            print('DEBUG: site_url: ${item['site_url']}');
-            print('DEBUG: favicon_url: ${item['favicon_url']}');
-            print('DEBUG: Все поля: $item');
-          }
-        }
         setState(() {
           passwords = data.map<Map<String, dynamic>>((item) => {
-                'id': item['id'],
-                'title': item['site_url'],
-                'subtitle': item['site_login'],
-                'password': item['site_password'],
-                'has_2fa': item['has_2fa'],
-                'has_seed_phrase': item['has_seed_phrase'],
-                'seed_phrase': item['seed_phrase'],
-                'notes': item['notes'],
-                'favicon_url': item['favicon_url'],
-              }).toList();
+            'id': item['id'],
+            'title': item['site_url'],
+            'subtitle': item['site_login'],
+            'password': item['site_password'],
+            'has_2fa': item['has_2fa'],
+            'has_seed_phrase': item['has_seed_phrase'],
+            'seed_phrase': item['seed_phrase'],
+            'notes': item['notes'],
+            'favicon_url': item['favicon_url'],
+            'folder_id': item['folder_id'],
+          }).toList();
           isLoading = false;
         });
       } else {
-        setState(() {
-          isLoading = false;
-        });
+        setState(() => isLoading = false);
       }
     } catch (e) {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
   }
+
+  Future<void> _loadSeedPhraseSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() => _hideSeedPhrases = prefs.getBool('hide_seed_phrases') ?? false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _hideSeedPhrases = false);
+    }
+  }
+
+  // ── CSV import ──────────────────────────────────────────────────────────────
 
   Future<void> _importCSV() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
-        withData: true, // Запрашиваем данные файла
+        withData: true,
       );
-
       if (result == null) return;
 
-      setState(() {
-        isImporting = true;
-      });
+      setState(() => isImporting = true);
 
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
@@ -134,18 +179,14 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         'POST',
         Uri.parse(AppConfig.importPasswordsUrl),
       );
-
-      // Добавляем заголовки
       request.headers.addAll({
         'Authorization': 'Bearer $token',
         'Accept': 'application/json',
       });
-
-      // Добавляем файл используя байты
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
-          result.files.single.bytes!, // Используем байты файла
+          result.files.single.bytes!,
           filename: result.files.single.name,
         ),
       );
@@ -158,9 +199,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.green,
-            content: Text(
-              'Импортировано: ${data['imported']}, Ошибок: ${data['failed']}',
-            ),
+            content: Text('Импортировано: ${data['imported']}, Ошибок: ${data['failed']}'),
           ),
         );
         _loadPasswords();
@@ -173,7 +212,6 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         );
       }
     } catch (e) {
-      print('Ошибка импорта: $e'); // Добавляем логирование для отладки
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red,
@@ -181,35 +219,11 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         ),
       );
     } finally {
-      setState(() {
-        isImporting = false;
-      });
+      setState(() => isImporting = false);
     }
   }
 
-  Future<void> _loadSeedPhraseSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final hideSeedPhrases = prefs.getBool('hide_seed_phrases') ?? false;
-      
-      print('Loading seed phrase settings: $hideSeedPhrases'); // Отладка
-      
-      if (mounted) {
-        setState(() {
-          _hideSeedPhrases = hideSeedPhrases;
-        });
-        print('Updated _hideSeedPhrases to: $_hideSeedPhrases'); // Отладка
-      }
-    } catch (e) {
-      print('Error loading seed phrase settings: $e'); // Отладка
-      // Игнорируем ошибки при загрузке настроек
-      if (mounted) {
-        setState(() {
-          _hideSeedPhrases = false;
-        });
-      }
-    }
-  }
+  // ── search ──────────────────────────────────────────────────────────────────
 
   Future<void> _searchPasswords(String query) async {
     if (query.trim().isEmpty) {
@@ -230,14 +244,14 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
       final token = prefs.getString('token');
 
       final response = await http.get(
-        Uri.parse('${AppConfig.baseUrl}/passwords/search/${Uri.encodeComponent(query.trim())}'),
+        Uri.parse(
+            '${AppConfig.baseUrl}/passwords/search/${Uri.encodeComponent(query.trim())}'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List results = data['results'] ?? [];
-        
         setState(() {
           searchResults = results.map<Map<String, dynamic>>((item) => {
             'id': item['id'],
@@ -249,6 +263,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             'seed_phrase': item['seed_phrase'],
             'notes': item['notes'],
             'favicon_url': item['favicon_url'],
+            'folder_id': item['folder_id'],
           }).toList();
           isSearching = false;
         });
@@ -259,7 +274,6 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         });
       }
     } catch (e) {
-      print('Ошибка поиска: $e');
       setState(() {
         searchResults.clear();
         isSearching = false;
@@ -276,73 +290,57 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     _searchFocusNode.unfocus();
   }
 
+  // ── clipboard helpers ───────────────────────────────────────────────────────
+
   void _copyPassword(String password) {
     if (password.isEmpty) return;
-    
     Clipboard.setData(ClipboardData(text: password));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.button,
-        content: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 10),
-            Text(
-              'Пароль скопирован в буфер обмена',
-              style: TextStyle(color: Colors.white),
-            ),
-          ],
-        ),
+        content: const Row(children: [
+          Icon(Icons.check_circle, color: Colors.white),
+          SizedBox(width: 10),
+          Text('Пароль скопирован в буфер обмена', style: TextStyle(color: Colors.white)),
+        ]),
       ),
     );
   }
 
   void _copySeedPhrase(String seedPhrase) {
     if (seedPhrase.isEmpty) return;
-    
     Clipboard.setData(ClipboardData(text: seedPhrase));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.accent,
-        content: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 10),
-            Text(
-              'Seed фраза скопирована в буфер обмена',
-              style: TextStyle(color: Colors.white),
-            ),
-          ],
-        ),
+        content: const Row(children: [
+          Icon(Icons.check_circle, color: Colors.white),
+          SizedBox(width: 10),
+          Text('Seed фраза скопирована в буфер обмена', style: TextStyle(color: Colors.white)),
+        ]),
       ),
     );
   }
 
+  // ── navigation ──────────────────────────────────────────────────────────────
+
   void _navigateToAddPassword() async {
     final result = await Navigator.pushNamed(context, '/add');
-    if (result == true) {
-      _loadPasswords(); // Обновляем список паролей
-    }
+    if (result == true) _loadAll();
   }
 
   void _navigateToEditPassword(Map<String, dynamic> password) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => EditPasswordScreen(password: password),
-      ),
+      MaterialPageRoute(builder: (context) => EditPasswordScreen(password: password)),
     );
-    
+
     if (result == true) {
-      // Пароль был удален, обновляем список
-      await _loadPasswords();
+      await _loadAll();
     } else if (result != null && result['success'] == true) {
-      // Обновляем конкретный пароль в списке
       setState(() {
-        // Ищем пароль по ID или по старому названию
-        final index = passwords.indexWhere((p) => 
-          p['id'] == password['id'] || p['title'] == password['title']
-        );
+        final index = passwords.indexWhere(
+            (p) => p['id'] == password['id'] || p['title'] == password['title']);
         if (index != -1) {
           passwords[index] = {
             'id': result['data']['id'],
@@ -354,19 +352,29 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             'seed_phrase': result['data']['seed_phrase'],
             'notes': result['data']['notes'],
             'favicon_url': result['data']['favicon_url'],
+            'folder_id': result['data']['folder_id'],
           };
         }
       });
-      // Затем обновляем весь список для синхронизации
-      await _loadPasswords();
+      await _loadAll();
     }
   }
 
+  void _openFoldersScreen() async {
+    final selected = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const FoldersScreen()),
+    );
+    if (selected != null) {
+      setState(() => _selectedFolderId = selected['id'] as int?);
+    }
+    await _loadFolders();
+  }
+
+  // ── favicon helpers ─────────────────────────────────────────────────────────
+
   Widget _buildFallbackFavicon(String? siteUrl) {
-    print('DEBUG: _buildFallbackFavicon вызван для: $siteUrl');
-    
     if (siteUrl == null || siteUrl.isEmpty) {
-      print('DEBUG: siteUrl пустой, возвращаем иконку по умолчанию');
       return Container(
         width: 24,
         height: 24,
@@ -374,58 +382,35 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           color: Colors.grey.withOpacity(0.2),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: const Icon(
-          Icons.language,
-          size: 14,
-          color: Colors.grey,
-        ),
+        child: const Icon(Icons.language, size: 14, color: Colors.grey),
       );
     }
-
     try {
-      // Добавляем протокол, если его нет
       String fullUrl = siteUrl;
       if (!siteUrl.startsWith('http://') && !siteUrl.startsWith('https://')) {
         fullUrl = 'https://$siteUrl';
       }
-
-      // Получаем домен из URL
       final uri = Uri.parse(fullUrl);
       String domain = uri.host;
-      
-      // Специальная обработка для MetaMask
-      if (siteUrl.toLowerCase().contains('metamask')) {
-        domain = 'metamask.io';
-      }
-      
+      if (siteUrl.toLowerCase().contains('metamask')) domain = 'metamask.io';
       final faviconUrl = 'https://www.google.com/s2/favicons?domain=$domain&sz=32';
-      
-      print('DEBUG: Fallback фавиконка для $siteUrl -> $domain -> $faviconUrl');
 
       return Image.network(
         faviconUrl,
         width: 24,
         height: 24,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          print('DEBUG: Ошибка загрузки fallback фавиконки для $siteUrl ($faviconUrl): $error');
-          return Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.grey.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const Icon(
-              Icons.language,
-              size: 14,
-              color: Colors.grey,
-            ),
-          );
-        },
+        errorBuilder: (_, __, ___) => Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Icon(Icons.language, size: 14, color: Colors.grey),
+        ),
       );
-    } catch (e) {
-      print('DEBUG: Исключение в _buildFallbackFavicon для $siteUrl: $e');
+    } catch (_) {
       return Container(
         width: 24,
         height: 24,
@@ -433,14 +418,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           color: Colors.grey.withOpacity(0.2),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: const Icon(
-          Icons.language,
-          size: 14,
-          color: Colors.grey,
-        ),
+        child: const Icon(Icons.language, size: 14, color: Colors.grey),
       );
     }
   }
+
+  // ── build ────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -451,24 +434,31 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           title: isSearchMode
               ? _buildSearchField()
               : NeonText(
-                  text: 'Пароли',
+                  text: _selectedFolderId == null
+                      ? 'Пароли'
+                      : _folderName(_selectedFolderId!),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-          backgroundColor: ThemeManager.currentTheme == AppTheme.dark 
-              ? AppColors.background 
+          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
+              ? AppColors.background
               : Colors.black.withOpacity(0.3),
           elevation: 0,
+          leading: _selectedFolderId != null
+              ? IconButton(
+                  icon: Icon(Icons.arrow_back, color: AppColors.text),
+                  onPressed: () => setState(() => _selectedFolderId = null),
+                )
+              : null,
           actions: [
             if (!isSearchMode)
               IconButton(
                 icon: Icon(Icons.search, color: AppColors.text),
                 onPressed: () {
-                  setState(() {
-                    isSearchMode = true;
-                  });
-                  Future.delayed(const Duration(milliseconds: 100), () {
-                    _searchFocusNode.requestFocus();
-                  });
+                  setState(() => isSearchMode = true);
+                  Future.delayed(
+                    const Duration(milliseconds: 100),
+                    () => _searchFocusNode.requestFocus(),
+                  );
                 },
                 tooltip: 'Поиск',
               ),
@@ -506,9 +496,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         ),
         body: Container(
           decoration: ThemeManager.currentTheme != AppTheme.dark
-              ? BoxDecoration(
-                  color: Colors.black.withOpacity(0.1),
-                )
+              ? BoxDecoration(color: Colors.black.withOpacity(0.1))
               : null,
           child: isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -516,6 +504,14 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         ),
       ),
     );
+  }
+
+  String _folderName(int id) {
+    final folder = folders.firstWhere(
+      (f) => f['id'] == id,
+      orElse: () => {'name': 'Папка'},
+    );
+    return folder['name'] as String? ?? 'Папка';
   }
 
   Widget _buildSearchField() {
@@ -545,9 +541,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             _clearSearch();
           } else {
             Future.delayed(const Duration(milliseconds: 300), () {
-              if (_searchController.text == value) {
-                _searchPasswords(value);
-              }
+              if (_searchController.text == value) _searchPasswords(value);
             });
           }
         },
@@ -557,132 +551,276 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   Widget _buildBody() {
     if (isSearchMode) {
-      if (isSearching) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: AppColors.button),
-              const SizedBox(height: 16),
-              NeonText(
-                text: 'Поиск паролей...',
-                style: TextStyle(color: AppColors.text.withOpacity(0.7)),
-              ),
-            ],
-          ),
-        );
-      }
-
-      if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.search_off,
-                size: 64,
-                color: AppColors.text.withOpacity(0.5),
-              ),
-              const SizedBox(height: 16),
-              NeonText(
-                text: 'Пароли не найдены',
-                style: const TextStyle(fontSize: 18),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Попробуйте изменить запрос',
-                style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
-              ),
-            ],
-          ),
-        );
-      }
-
-      if (searchResults.isEmpty) {
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.search,
-                size: 64,
-                color: AppColors.text.withOpacity(0.5),
-              ),
-              const SizedBox(height: 16),
-              NeonText(
-                text: 'Введите запрос для поиска',
-                style: const TextStyle(fontSize: 18),
-              ),
-            ],
-          ),
-        );
-      }
-
-      return _buildPasswordsList(searchResults);
+      return _buildSearchBody();
     }
+    return _buildNormalBody();
+  }
 
-    // Обычный режим отображения всех паролей
-    if (passwords.isEmpty) {
+  Widget _buildSearchBody() {
+    if (isSearching) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            CircularProgressIndicator(color: AppColors.button),
+            const SizedBox(height: 16),
             NeonText(
-              text: 'У вас пока нет сохранённых паролей',
-              style: const TextStyle(fontSize: 16),
+              text: 'Поиск паролей...',
+              style: TextStyle(color: AppColors.text.withOpacity(0.7)),
             ),
-            const SizedBox(height: 20),
           ],
         ),
       );
     }
+    if (searchResults.isEmpty && _searchController.text.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 64, color: AppColors.text.withOpacity(0.5)),
+            const SizedBox(height: 16),
+            NeonText(text: 'Пароли не найдены', style: const TextStyle(fontSize: 18)),
+            const SizedBox(height: 8),
+            Text(
+              'Попробуйте изменить запрос',
+              style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
+            ),
+          ],
+        ),
+      );
+    }
+    if (searchResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search, size: 64, color: AppColors.text.withOpacity(0.5)),
+            const SizedBox(height: 16),
+            NeonText(text: 'Введите запрос для поиска', style: const TextStyle(fontSize: 18)),
+          ],
+        ),
+      );
+    }
+    return _buildPasswordsList(searchResults);
+  }
 
-    return _buildPasswordsList(passwords);
+  Widget _buildNormalBody() {
+    // Filter passwords by selected folder
+    final List<Map<String, dynamic>> filtered = _selectedFolderId == null
+        ? passwords
+        : passwords.where((p) => p['folder_id'] == _selectedFolderId).toList();
+
+    return CustomScrollView(
+      slivers: [
+        // Folder bar (only when viewing all)
+        if (_selectedFolderId == null && folders.isNotEmpty)
+          SliverToBoxAdapter(child: _buildFolderBar()),
+
+        // Password list
+        SliverToBoxAdapter(child: _buildPasswordsSection(filtered)),
+      ],
+    );
+  }
+
+  Widget _buildFolderBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              NeonText(
+                text: 'Папки',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.text.withOpacity(0.7),
+                ),
+              ),
+              GestureDetector(
+                onTap: _openFoldersScreen,
+                child: Text(
+                  'Управление',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.button,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 90,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: folders.length + 1, // +1 for "All" chip
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return _buildFolderChip(
+                    label: 'Все',
+                    icon: Icons.apps,
+                    color: AppColors.button,
+                    count: passwords.length,
+                    isSelected: _selectedFolderId == null,
+                    onTap: () => setState(() => _selectedFolderId = null),
+                  );
+                }
+                final folder = folders[index - 1];
+                final color = _colorFromHex(folder['color'] as String? ?? '#5D52D2');
+                final iconData = _iconFromName(folder['icon'] as String? ?? 'folder');
+                final isSelected = _selectedFolderId == folder['id'];
+                final count = passwords.where((p) => p['folder_id'] == folder['id']).length;
+
+                return _buildFolderChip(
+                  label: folder['name'] as String? ?? '',
+                  icon: iconData,
+                  color: color,
+                  count: count,
+                  isSelected: isSelected,
+                  onTap: () => setState(() => _selectedFolderId = folder['id'] as int),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          Divider(color: AppColors.text.withOpacity(0.08), height: 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFolderChip({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required int count,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 80,
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.2) : AppColors.input,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? color : Colors.transparent,
+            width: 1.5,
+          ),
+          boxShadow: isSelected && ThemeManager.colors.hasNeonGlow
+              ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10)]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: isSelected ? color : AppColors.text.withOpacity(0.5), size: 22),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: isSelected ? color : AppColors.text.withOpacity(0.7),
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                color: isSelected ? color.withOpacity(0.8) : AppColors.text.withOpacity(0.4),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPasswordsSection(List<Map<String, dynamic>> filtered) {
+    if (filtered.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 80),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(
+                _selectedFolderId != null ? Icons.folder_open : Icons.lock_open,
+                size: 72,
+                color: AppColors.text.withOpacity(0.2),
+              ),
+              const SizedBox(height: 20),
+              NeonText(
+                text: _selectedFolderId != null
+                    ? 'Нет паролей в этой папке'
+                    : 'У вас пока нет сохранённых паролей',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return _buildPasswordsList(filtered);
   }
 
   Widget _buildPasswordsList(List<Map<String, dynamic>> passwordsToShow) {
-    // Подсчитываем видимые записи
-    final visiblePasswords = passwordsToShow.where((item) => 
-      !(item['has_seed_phrase'] == true && _hideSeedPhrases)
-    ).toList();
-    
+    final visiblePasswords = passwordsToShow
+        .where((item) => !(item['has_seed_phrase'] == true && _hideSeedPhrases))
+        .toList();
+
     if (visiblePasswords.isEmpty && _hideSeedPhrases) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.visibility_off,
-              size: 64,
-              color: AppColors.text.withOpacity(0.5),
-            ),
-            const SizedBox(height: 16),
-            NeonText(
-              text: 'Все записи с seed фразами скрыты',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Отключите скрытие в настройках, чтобы увидеть записи',
-              style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
-              textAlign: TextAlign.center,
-            ),
-          ],
+      return Padding(
+        padding: const EdgeInsets.only(top: 80),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.visibility_off, size: 64, color: AppColors.text.withOpacity(0.5)),
+              const SizedBox(height: 16),
+              NeonText(text: 'Все записи с seed фразами скрыты', style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 8),
+              Text(
+                'Отключите скрытие в настройках, чтобы увидеть записи',
+                style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
-    
+
     return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: passwordsToShow.length,
       padding: const EdgeInsets.all(16),
       itemBuilder: (context, index) {
         final item = passwordsToShow[index];
-          
-        // Скрываем всю запись, если у неё есть seed фраза и включена настройка скрытия
         if (item['has_seed_phrase'] == true && _hideSeedPhrases) {
-          return const SizedBox.shrink(); // Возвращаем пустой виджет
+          return const SizedBox.shrink();
         }
-          
+
+        // Folder badge
+        final folderId = item['folder_id'] as int?;
+        Map<String, dynamic>? itemFolder;
+        if (folderId != null) {
+          try {
+            itemFolder = folders.firstWhere((f) => f['id'] == folderId);
+          } catch (_) {}
+        }
+
         return ThemedContainer(
           margin: const EdgeInsets.only(bottom: 16),
           child: InkWell(
@@ -721,8 +859,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                                           width: 24,
                                           height: 24,
                                           fit: BoxFit.cover,
-                                          loadingBuilder: (BuildContext context, Widget child, ImageChunkEvent? loadingProgress) {
-                                            if (loadingProgress == null) return child;
+                                          loadingBuilder: (ctx, child, progress) {
+                                            if (progress == null) return child;
                                             return Shimmer.fromColors(
                                               baseColor: AppColors.input,
                                               highlightColor: AppColors.background,
@@ -736,10 +874,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                                               ),
                                             );
                                           },
-                                          errorBuilder: (context, error, stackTrace) {
-                                            print('DEBUG: Ошибка загрузки фавиконки для ${item['title']}: ${item['favicon_url']} - $error');
-                                            return _buildFallbackFavicon(item['title']);
-                                          },
+                                          errorBuilder: (_, __, ___) =>
+                                              _buildFallbackFavicon(item['title']),
                                         )
                                       : _buildFallbackFavicon(item['title']),
                                 ),
@@ -768,6 +904,32 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                               ),
                             ),
                           ),
+                        // Folder badge
+                        if (itemFolder != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _iconFromName(itemFolder['icon'] as String? ?? 'folder'),
+                                  size: 12,
+                                  color: _colorFromHex(
+                                      itemFolder['color'] as String? ?? '#5D52D2'),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  itemFolder['name'] as String? ?? '',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: _colorFromHex(
+                                        itemFolder['color'] as String? ?? '#5D52D2'),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if (item['notes'] != null && item['notes'].toString().isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
@@ -789,7 +951,9 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       if (item['has_2fa'] == true) ...[
                         Icon(
                           Icons.verified_user,
-                          color: ThemeManager.colors.hasNeonGlow ? AppColors.accent : AppColors.text,
+                          color: ThemeManager.colors.hasNeonGlow
+                              ? AppColors.accent
+                              : AppColors.text,
                           size: 20,
                         ),
                         const SizedBox(width: 12),
@@ -809,7 +973,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       ),
                       IconButton(
                         icon: Icon(Icons.copy, color: AppColors.button),
-                        onPressed: () => _copyPassword(item['password']),
+                        onPressed: () => _copyPassword(item['password'] ?? ''),
                         tooltip: 'Копировать пароль',
                       ),
                     ],

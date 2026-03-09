@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 import re
+from typing import Optional
 from . import models, schemas, auth
 
 def get_user_by_login(db: Session, login: str):
@@ -56,9 +57,19 @@ def get_passwords(db: Session, user_id: int):
 
 
 def create_password(db: Session, password: schemas.PasswordCreate, user_id: int):
+    # Validate folder ownership if folder_id provided
+    if password.folder_id is not None:
+        folder = db.query(models.Folder).filter(
+            models.Folder.id == password.folder_id,
+            models.Folder.user_id == user_id
+        ).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
     # Pure Zero-Knowledge: Just store what the client sends
     db_password = models.Password(
         user_id=user_id,
+        folder_id=password.folder_id,
         site_url=password.site_url,
         site_login=password.site_login,
         encrypted_payload=password.encrypted_payload,
@@ -69,10 +80,144 @@ def create_password(db: Session, password: schemas.PasswordCreate, user_id: int)
     db.add(db_password)
     db.commit()
     db.refresh(db_password)
-    
+
     audit_event(db, user_id, "vault_create", meta={"site_url": password.site_url})
-    
+
     return db_password
+
+
+def update_password(db: Session, password_id: int, password: schemas.PasswordUpdate, user_id: int):
+    db_password = db.query(models.Password).filter(
+        models.Password.id == password_id,
+        models.Password.user_id == user_id
+    ).first()
+    if not db_password:
+        raise HTTPException(status_code=404, detail="Password not found")
+
+    if password.folder_id is not None:
+        folder = db.query(models.Folder).filter(
+            models.Folder.id == password.folder_id,
+            models.Folder.user_id == user_id
+        ).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+    db_password.folder_id = password.folder_id
+    db_password.site_url = password.site_url
+    db_password.site_login = password.site_login
+    db_password.encrypted_payload = password.encrypted_payload
+    db_password.notes_encrypted = password.notes_encrypted
+    db_password.has_2fa = password.has_2fa
+    db_password.has_seed_phrase = password.has_seed_phrase
+    db.commit()
+    db.refresh(db_password)
+
+    audit_event(db, user_id, "vault_update", meta={"site_url": password.site_url})
+    return db_password
+
+
+def delete_password(db: Session, password_id: int, user_id: int):
+    db_password = db.query(models.Password).filter(
+        models.Password.id == password_id,
+        models.Password.user_id == user_id
+    ).first()
+    if not db_password:
+        raise HTTPException(status_code=404, detail="Password not found")
+
+    audit_event(db, user_id, "vault_delete", meta={"site_url": db_password.site_url})
+    db.delete(db_password)
+    db.commit()
+
+
+# ── Folder CRUD ───────────────────────────────────────────────────────────────
+
+def get_folders(db: Session, user_id: int):
+    folders = db.query(models.Folder).filter(models.Folder.user_id == user_id).all()
+    result = []
+    for folder in folders:
+        count = db.query(models.Password).filter(
+            models.Password.folder_id == folder.id
+        ).count()
+        folder_dict = {
+            "id": folder.id,
+            "name": folder.name,
+            "color": folder.color,
+            "icon": folder.icon,
+            "created_at": folder.created_at,
+            "updated_at": folder.updated_at,
+            "password_count": count,
+        }
+        result.append(folder_dict)
+    return result
+
+
+def create_folder(db: Session, folder: schemas.FolderCreate, user_id: int):
+    db_folder = models.Folder(
+        user_id=user_id,
+        name=folder.name,
+        color=folder.color,
+        icon=folder.icon,
+    )
+    db.add(db_folder)
+    db.commit()
+    db.refresh(db_folder)
+    audit_event(db, user_id, "folder_create", meta={"name": folder.name})
+    return db_folder
+
+
+def update_folder(db: Session, folder_id: int, folder: schemas.FolderUpdate, user_id: int):
+    db_folder = db.query(models.Folder).filter(
+        models.Folder.id == folder_id,
+        models.Folder.user_id == user_id
+    ).first()
+    if not db_folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder.name is not None:
+        db_folder.name = folder.name
+    if folder.color is not None:
+        db_folder.color = folder.color
+    if folder.icon is not None:
+        db_folder.icon = folder.icon
+
+    db.commit()
+    db.refresh(db_folder)
+    audit_event(db, user_id, "folder_update", meta={"id": folder_id})
+    return db_folder
+
+
+def delete_folder(db: Session, folder_id: int, user_id: int):
+    db_folder = db.query(models.Folder).filter(
+        models.Folder.id == folder_id,
+        models.Folder.user_id == user_id
+    ).first()
+    if not db_folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    # Unlink passwords from this folder (don't delete them)
+    db.query(models.Password).filter(
+        models.Password.folder_id == folder_id
+    ).update({"folder_id": None})
+
+    audit_event(db, user_id, "folder_delete", meta={"id": folder_id})
+    db.delete(db_folder)
+    db.commit()
+
+
+def get_passwords_by_folder(db: Session, folder_id: int, user_id: int):
+    # Verify folder ownership
+    folder = db.query(models.Folder).filter(
+        models.Folder.id == folder_id,
+        models.Folder.user_id == user_id
+    ).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    audit_event(db, user_id, "vault_read", meta={"folder_id": folder_id})
+    return db.query(models.Password).filter(
+        models.Password.folder_id == folder_id,
+        models.Password.user_id == user_id
+    ).all()
 
 
 def get_history(db: Session, user_id: int):

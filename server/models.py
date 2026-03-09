@@ -10,14 +10,30 @@ class User(Base):
     login = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     salt = Column(String, nullable=False)  # Base64 salt for client-side KDF
-    
+
     # 2FA Fields
     totp_secret = Column(String, nullable=True)
     totp_enabled = Column(Boolean, default=False)
     last_otp_ts = Column(Integer, default=0) # Protect against replay attacks
-    
+
     history = relationship("PasswordHistory", back_populates="user")
     passwords = relationship("Password", back_populates="owner")
+    folders = relationship("Folder", back_populates="owner")
+
+
+class Folder(Base):
+    __tablename__ = "folders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=False, default="#5D52D2")  # Hex color
+    icon = Column(String, nullable=False, default="folder")   # Icon name
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    owner = relationship("User", back_populates="folders")
+    passwords = relationship("Password", back_populates="folder")
 
 
 class Password(Base):
@@ -25,19 +41,21 @@ class Password(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    folder_id = Column(Integer, ForeignKey("folders.id"), nullable=True)
     site_url = Column(String, index=True)
     site_login = Column(String)
     # Zero-Knowledge: Only encrypted blobs
     encrypted_payload = Column(String, nullable=False)  # base64: nonce + ciphertext + tag
     notes_encrypted = Column(String, nullable=True)     # base64
-    
+
     has_2fa = Column(Boolean, default=False)
     has_seed_phrase = Column(Boolean, default=False)
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     owner = relationship("User", back_populates="passwords")
+    folder = relationship("Folder", back_populates="passwords")
 
 
 class PasswordHistory(Base):

@@ -57,6 +57,18 @@ All data is stored in a **secure encrypted vault** using **AES-256-GCM**. Master
 
 ---
 
+## 📁 Password Folders
+Organize your passwords into **custom folders** for easier navigation and management:
+- Create folders with a **custom name, color** (12 color presets) **and icon** (16 icons to choose from)
+- A **horizontal folder bar** on the main vault screen lets you filter passwords by folder in one tap
+- **Assign a folder** when adding or editing any password entry (optional)
+- Open the **Folders screen** ("Manage" button in the folder bar) to create, edit, rename, recolor, or delete folders
+- Deleting a folder **never deletes its passwords** — they simply become unassigned
+- Full REST API support: `GET /folders` · `POST /folders` · `PUT /folders/{id}` · `DELETE /folders/{id}`
+- Backend stores folder ownership per user — **no cross-user data leakage**
+
+---
+
 ## 🛡️ Hardened 2FA
 Built-in support for TOTP (Google Authenticator, Microsoft Authenticator, Aegis, etc.).
 - Mandatory 2FA setup during registration.

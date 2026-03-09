@@ -11,6 +11,7 @@ import 'screens/setup_pin_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/biometric_test_screen.dart';
 import 'screens/password_history_screen.dart';
+import 'screens/folders_screen.dart';
 import 'theme/colors.dart';
 import 'utils/config_test.dart';
 
@@ -75,6 +76,7 @@ class _PasswordManagerAppState extends State<PasswordManagerApp> {
         '/add': (context) => const AddPasswordScreen(),
         '/biometric-test': (context) => const BiometricTestScreen(),
         '/password-history': (context) => const PasswordHistoryScreen(),
+        '/folders': (context) => const FoldersScreen(),
       },
     );
   }

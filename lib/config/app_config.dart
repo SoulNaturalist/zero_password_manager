@@ -35,6 +35,9 @@ class AppConfig {
   static String get importPasswordsUrl => '$apiUrl/import-passwords';
   static String get updateFaviconsUrl => '$apiUrl/update-favicons';
   static String get passwordHistoryUrl => '$apiUrl/password-history';
+  static String get foldersUrl => '$apiUrl/folders';
 
   static String getPasswordUrl(String siteUrl) => '$apiUrl/passwords/${Uri.encodeComponent(siteUrl)}';
+  static String getFolderPasswordsUrl(int folderId) => '$apiUrl/folders/$folderId/passwords';
+  static String getFolderUrl(int folderId) => '$apiUrl/folders/$folderId';
 } 

@@ -286,6 +286,100 @@ def create_password(request: Request,
     return new_pwd
 
 
+@app.put("/passwords/{password_id}",
+         response_model=schemas.PasswordResponse)
+@limiter.limit("30/minute")
+def update_password(request: Request,
+                    password_id: int,
+                    password: schemas.PasswordUpdate,
+                    current_user: models.User = Depends(auth.get_current_user),
+                    db: Session = Depends(get_db)):
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
+
+    updated = crud.update_password(db, password_id=password_id, password=password, user_id=current_user.id)
+    updated.favicon_url = get_favicon_url(updated.site_url)
+    return updated
+
+
+@app.delete("/passwords/{password_id}",
+            status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
+def delete_password(request: Request,
+                    password_id: int,
+                    current_user: models.User = Depends(auth.get_current_user),
+                    db: Session = Depends(get_db)):
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
+
+    crud.delete_password(db, password_id=password_id, user_id=current_user.id)
+
+
+# ── Folder Endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/folders", response_model=List[schemas.FolderResponse])
+def read_folders(current_user: models.User = Depends(auth.get_current_user),
+                 db: Session = Depends(get_db)):
+    return crud.get_folders(db, user_id=current_user.id)
+
+
+@app.post("/folders",
+          response_model=schemas.FolderResponse,
+          status_code=status.HTTP_201_CREATED)
+def create_folder(folder: schemas.FolderCreate,
+                  current_user: models.User = Depends(auth.get_current_user),
+                  db: Session = Depends(get_db)):
+    db_folder = crud.create_folder(db, folder=folder, user_id=current_user.id)
+    return {
+        "id": db_folder.id,
+        "name": db_folder.name,
+        "color": db_folder.color,
+        "icon": db_folder.icon,
+        "created_at": db_folder.created_at,
+        "updated_at": db_folder.updated_at,
+        "password_count": 0,
+    }
+
+
+@app.put("/folders/{folder_id}", response_model=schemas.FolderResponse)
+def update_folder(folder_id: int,
+                  folder: schemas.FolderUpdate,
+                  current_user: models.User = Depends(auth.get_current_user),
+                  db: Session = Depends(get_db)):
+    db_folder = crud.update_folder(db, folder_id=folder_id, folder=folder, user_id=current_user.id)
+    count = db.query(models.Password).filter(models.Password.folder_id == folder_id).count()
+    return {
+        "id": db_folder.id,
+        "name": db_folder.name,
+        "color": db_folder.color,
+        "icon": db_folder.icon,
+        "created_at": db_folder.created_at,
+        "updated_at": db_folder.updated_at,
+        "password_count": count,
+    }
+
+
+@app.delete("/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_folder(folder_id: int,
+                  current_user: models.User = Depends(auth.get_current_user),
+                  db: Session = Depends(get_db)):
+    crud.delete_folder(db, folder_id=folder_id, user_id=current_user.id)
+
+
+@app.get("/folders/{folder_id}/passwords", response_model=List[schemas.PasswordResponse])
+def read_folder_passwords(folder_id: int,
+                          request: Request,
+                          current_user: models.User = Depends(auth.get_current_user),
+                          db: Session = Depends(get_db)):
+    if "vault_read" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"))
+
+    passwords = crud.get_passwords_by_folder(db, folder_id=folder_id, user_id=current_user.id)
+    for p in passwords:
+        p.favicon_url = get_favicon_url(p.site_url)
+    return passwords
+
+
 @app.get("/audit", response_model=List[schemas.AuditResponse])
 def read_audit_logs(request: Request,
                     current_user: models.User = Depends(auth.get_current_user),

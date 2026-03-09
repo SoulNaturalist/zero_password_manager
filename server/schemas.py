@@ -2,6 +2,36 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+
+# ── Folder Schemas ────────────────────────────────────────────────────────────
+
+class FolderCreate(BaseModel):
+    name: str
+    color: str = "#5D52D2"
+    icon: str = "folder"
+
+
+class FolderUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+
+
+class FolderResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    icon: str
+    created_at: datetime
+    updated_at: datetime
+    password_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+# ── User Schemas ──────────────────────────────────────────────────────────────
+
 class UserBase(BaseModel):
     login: str
 
@@ -34,6 +64,7 @@ class PasswordBase(BaseModel):
     site_login: str
     has_2fa: bool = False
     has_seed_phrase: bool = False
+    folder_id: Optional[int] = None
 
 
 class PasswordCreate(PasswordBase):
@@ -49,6 +80,7 @@ class PasswordResponse(PasswordBase):
     encrypted_payload: str
     notes_encrypted: Optional[str] = None
     favicon_url: Optional[str] = None
+    folder_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

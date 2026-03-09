@@ -14,6 +14,14 @@ class ApiService {
     return _handleRequest(() => http.post(Uri.parse(url), headers: headers, body: body), url, headers: headers, body: body);
   }
 
+  static Future<http.Response> put(String url, {Map<String, String>? headers, Object? body}) async {
+    return _handleRequest(() => http.put(Uri.parse(url), headers: headers, body: body), url, headers: headers, body: body);
+  }
+
+  static Future<http.Response> delete(String url, {Map<String, String>? headers}) async {
+    return _handleRequest(() => http.delete(Uri.parse(url), headers: headers), url, headers: headers);
+  }
+
   static Future<http.Response> _handleRequest(
     Future<http.Response> Function() requestFn,
     String url, {
@@ -41,6 +49,10 @@ class ApiService {
             return http.get(Uri.parse(url), headers: newHeaders);
           } else if (response.request?.method == 'POST') {
             return http.post(Uri.parse(url), headers: newHeaders, body: body);
+          } else if (response.request?.method == 'PUT') {
+            return http.put(Uri.parse(url), headers: newHeaders, body: body);
+          } else if (response.request?.method == 'DELETE') {
+            return http.delete(Uri.parse(url), headers: newHeaders);
           }
         }
       }

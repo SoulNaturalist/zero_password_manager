@@ -5,7 +5,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../config/app_config.dart';
+import '../utils/api_service.dart';
 import '../utils/password_history_service.dart';
+import '../utils/folder_service.dart';
+
+// ── helpers (same as add_password_screen) ────────────────────────────────────
+
+Color _colorFromHex(String hex) {
+  try {
+    return Color(int.parse(hex.replaceFirst('#', '0xFF')));
+  } catch (_) {
+    return const Color(0xFF5D52D2);
+  }
+}
+
+IconData _iconFromName(String name) {
+  const map = {
+    'folder': Icons.folder,
+    'work': Icons.work,
+    'home': Icons.home,
+    'lock': Icons.lock,
+    'star': Icons.star,
+    'favorite': Icons.favorite,
+    'shopping_cart': Icons.shopping_cart,
+    'school': Icons.school,
+    'code': Icons.code,
+    'gaming': Icons.sports_esports,
+    'bank': Icons.account_balance,
+    'email': Icons.email,
+    'cloud': Icons.cloud,
+    'social': Icons.people,
+    'crypto': Icons.currency_bitcoin,
+    'vpn_key': Icons.vpn_key,
+  };
+  return map[name] ?? Icons.folder;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class EditPasswordScreen extends StatefulWidget {
   final Map<String, dynamic> password;
@@ -31,6 +67,9 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
   String? faviconUrl;
   bool isLoadingFavicon = false;
 
+  List<Map<String, dynamic>> _folders = [];
+  int? _selectedFolderId;
+
   @override
   void initState() {
     super.initState();
@@ -41,16 +80,11 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     hasSeedPhrase = widget.password['has_seed_phrase'] ?? false;
     seedPhraseController.text = widget.password['seed_phrase'] ?? '';
     notesController.text = widget.password['notes'] ?? '';
-    
-    // Загружаем фавиконку для существующего сайта
-    if (siteController.text.isNotEmpty) {
-      _loadFavicon(siteController.text);
-    }
-    
-    // Добавляем слушатель для загрузки фавиконки при изменении URL
-    siteController.addListener(() {
-      _loadFavicon(siteController.text);
-    });
+    _selectedFolderId = widget.password['folder_id'] as int?;
+
+    if (siteController.text.isNotEmpty) _loadFavicon(siteController.text);
+    siteController.addListener(() => _loadFavicon(siteController.text));
+    _loadFolders();
   }
 
   @override
@@ -61,6 +95,11 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     notesController.dispose();
     seedPhraseController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadFolders() async {
+    final folders = await FolderService.getFolders();
+    if (mounted) setState(() => _folders = folders);
   }
 
   Future<void> generatePassword() async {
@@ -75,29 +114,19 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
 
       final response = await http.get(
         Uri.parse(AppConfig.generatePasswordUrl),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        setState(() {
-          passwordController.text = data['password'];
-        });
+        setState(() => passwordController.text = data['password']);
       } else {
-        setState(() {
-          errorMessage = 'Ошибка генерации пароля';
-        });
+        setState(() => errorMessage = 'Ошибка генерации пароля');
       }
     } catch (e) {
-      setState(() {
-        errorMessage = 'Ошибка подключения к серверу';
-      });
+      setState(() => errorMessage = 'Ошибка подключения к серверу');
     } finally {
-      setState(() {
-        isGeneratingPassword = false;
-      });
+      setState(() => isGeneratingPassword = false);
     }
   }
 
@@ -107,9 +136,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     final password = passwordController.text.trim();
 
     if (site.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() {
-        errorMessage = 'Все поля обязательны';
-      });
+      setState(() => errorMessage = 'Все поля обязательны');
       return;
     }
 
@@ -122,44 +149,53 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
 
-      // Добавляем протокол, если его нет
       String fullUrl = site;
       if (!site.startsWith('http://') && !site.startsWith('https://')) {
         fullUrl = 'https://$site';
       }
 
-      // Определяем, изменился ли URL сайта
-      final originalSite = widget.password['title'] ?? '';
-      final siteChanged = site != originalSite;
+      final passwordId = widget.password['id'];
+      final body = <String, dynamic>{
+        'site_url': fullUrl,
+        'site_login': email,
+        'site_password': password,
+        'has_2fa': has2FA,
+        'has_seed_phrase': hasSeedPhrase,
+        'seed_phrase': seedPhraseController.text.trim(),
+        'notes': notesController.text.trim(),
+        'folder_id': _selectedFolderId,
+      };
 
-      // Используем новый URL для API запроса, если сайт изменился
-      final apiUrl = siteChanged 
-          ? AppConfig.getPasswordUrl(fullUrl) 
-          : AppConfig.getPasswordUrl(originalSite);
-
-      final response = await http.put(
-        Uri.parse(apiUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'site_url': fullUrl, // Отправляем новый URL сайта
-          'site_login': email,
-          'site_password': password,
-          'has_2fa': has2FA,
-          'has_seed_phrase': hasSeedPhrase,
-          'seed_phrase': seedPhraseController.text.trim(),
-          'notes': notesController.text.trim(),
-        }),
-      );
+      http.Response response;
+      if (passwordId != null) {
+        // Use new ID-based endpoint
+        response = await ApiService.put(
+          '${AppConfig.passwordsUrl}/$passwordId',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        );
+      } else {
+        // Fallback: old URL-based endpoint
+        final originalSite = widget.password['title'] ?? '';
+        final apiUrl = AppConfig.getPasswordUrl(originalSite);
+        response = await http.put(
+          Uri.parse(apiUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        );
+      }
 
       if (response.statusCode == 200) {
         final updatedData = jsonDecode(response.body);
-        
-        // Добавляем запись в историю паролей
+
         await PasswordHistoryService.addPasswordHistory(
-          passwordId: updatedData['id'],
+          passwordId: updatedData['id'] ?? passwordId,
           actionType: 'UPDATE',
           actionDetails: {
             'old': {
@@ -177,37 +213,32 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
           },
           siteUrl: fullUrl,
         );
-        
+
         if (mounted) {
           Navigator.pop(context, {
             'success': true,
             'data': {
-              'id': updatedData['id'],
-              'title': updatedData['site_url'],
-              'subtitle': updatedData['site_login'],
-              'password': updatedData['site_password'],
-              'has_2fa': updatedData['has_2fa'],
-              'has_seed_phrase': updatedData['has_seed_phrase'],
-              'seed_phrase': updatedData['seed_phrase'],
-              'notes': updatedData['notes'],
-              'favicon_url': updatedData['favicon_url'], // Добавляем фавиконку
+              'id': updatedData['id'] ?? passwordId,
+              'title': updatedData['site_url'] ?? fullUrl,
+              'subtitle': updatedData['site_login'] ?? email,
+              'password': updatedData['site_password'] ?? password,
+              'has_2fa': updatedData['has_2fa'] ?? has2FA,
+              'has_seed_phrase': updatedData['has_seed_phrase'] ?? hasSeedPhrase,
+              'seed_phrase': updatedData['seed_phrase'] ?? seedPhraseController.text.trim(),
+              'notes': updatedData['notes'] ?? notesController.text.trim(),
+              'favicon_url': updatedData['favicon_url'],
+              'folder_id': updatedData['folder_id'] ?? _selectedFolderId,
             }
           });
         }
       } else {
         final data = jsonDecode(response.body);
-        setState(() {
-          errorMessage = data['error'] ?? 'Ошибка при сохранении';
-        });
+        setState(() => errorMessage = data['error'] ?? data['detail'] ?? 'Ошибка при сохранении');
       }
     } catch (e) {
-      setState(() {
-        errorMessage = 'Ошибка подключения к серверу';
-      });
+      setState(() => errorMessage = 'Ошибка подключения к серверу');
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
   }
 
@@ -215,17 +246,24 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.input,
-        title: const Text('Подтверждение удаления'),
-        content: const Text('Вы уверены, что хотите удалить этот пароль?'),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: NeonText(
+          text: 'Подтверждение удаления',
+          style: TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Вы уверены, что хотите удалить этот пароль?',
+          style: TextStyle(color: AppColors.text.withOpacity(0.8)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Отмена'),
+            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+            child: Text('Удалить', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -242,17 +280,24 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
 
-      final response = await http.delete(
-        Uri.parse(AppConfig.getPasswordUrl(widget.password['title'])),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final passwordId = widget.password['id'];
+      http.Response response;
 
-      if (response.statusCode == 200) {
-        // Добавляем запись в историю паролей
+      if (passwordId != null) {
+        response = await ApiService.delete(
+          '${AppConfig.passwordsUrl}/$passwordId',
+          headers: {'Authorization': 'Bearer $token'},
+        );
+      } else {
+        response = await http.delete(
+          Uri.parse(AppConfig.getPasswordUrl(widget.password['title'] ?? '')),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+      }
+
+      if (response.statusCode == 204 || response.statusCode == 200) {
         await PasswordHistoryService.addPasswordHistory(
-          passwordId: widget.password['id'],
+          passwordId: passwordId ?? widget.password['id'],
           actionType: 'DELETE',
           actionDetails: {
             'deleted_password': {
@@ -264,24 +309,16 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
           },
           siteUrl: widget.password['title'] ?? '',
         );
-        
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
+
+        if (mounted) Navigator.pop(context, true);
       } else {
         final data = jsonDecode(response.body);
-        setState(() {
-          errorMessage = data['error'] ?? 'Ошибка при удалении';
-        });
+        setState(() => errorMessage = data['error'] ?? data['detail'] ?? 'Ошибка при удалении');
       }
     } catch (e) {
-      setState(() {
-        errorMessage = 'Ошибка подключения к серверу';
-      });
+      setState(() => errorMessage = 'Ошибка подключения к серверу');
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
   }
 
@@ -294,40 +331,21 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       return;
     }
 
-    setState(() {
-      isLoadingFavicon = true;
-    });
+    setState(() => isLoadingFavicon = true);
 
     try {
       String domain = url.trim();
-      
-      // Убираем протокол если есть
-      if (domain.startsWith('http://')) {
-        domain = domain.substring(7);
-      } else if (domain.startsWith('https://')) {
-        domain = domain.substring(8);
-      }
-      
-      // Убираем путь если есть (оставляем только домен)
-      if (domain.contains('/')) {
-        domain = domain.split('/')[0];
-      }
-      
-      // Если домен не содержит точку, добавляем .com (для случаев типа "github")
-      if (!domain.contains('.') && domain.isNotEmpty) {
-        domain = '$domain.com';
-      }
-      
-      // Специальная обработка для MetaMask
-      if (url.toLowerCase().contains('metamask')) {
-        domain = 'metamask.io';
-      }
+      if (domain.startsWith('http://')) domain = domain.substring(7);
+      else if (domain.startsWith('https://')) domain = domain.substring(8);
+      if (domain.contains('/')) domain = domain.split('/')[0];
+      if (!domain.contains('.') && domain.isNotEmpty) domain = '$domain.com';
+      if (url.toLowerCase().contains('metamask')) domain = 'metamask.io';
 
       setState(() {
         faviconUrl = 'https://www.google.com/s2/favicons?domain=$domain&sz=32';
         isLoadingFavicon = false;
       });
-    } catch (e) {
+    } catch (_) {
       setState(() {
         faviconUrl = null;
         isLoadingFavicon = false;
@@ -335,8 +353,88 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     }
   }
 
+  void _showFolderPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.text.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          NeonText(
+            text: 'Выберите папку',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.text),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.input,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.folder_off, color: AppColors.text.withOpacity(0.5), size: 20),
+            ),
+            title: Text('Без папки', style: TextStyle(color: AppColors.text)),
+            trailing: _selectedFolderId == null
+                ? Icon(Icons.check, color: AppColors.button)
+                : null,
+            onTap: () {
+              setState(() => _selectedFolderId = null);
+              Navigator.pop(ctx);
+            },
+          ),
+          ..._folders.map((folder) {
+            final color = _colorFromHex(folder['color'] as String? ?? '#5D52D2');
+            final icon = _iconFromName(folder['icon'] as String? ?? 'folder');
+            final isSelected = _selectedFolderId == folder['id'];
+            return ListTile(
+              leading: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: color.withOpacity(0.4)),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              title: Text(folder['name'] as String? ?? '', style: TextStyle(color: AppColors.text)),
+              trailing: isSelected ? Icon(Icons.check, color: AppColors.button) : null,
+              onTap: () {
+                setState(() => _selectedFolderId = folder['id'] as int?);
+                Navigator.pop(ctx);
+              },
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selectedFolder = _selectedFolderId != null
+        ? _folders.firstWhere(
+            (f) => f['id'] == _selectedFolderId,
+            orElse: () => <String, dynamic>{},
+          )
+        : null;
+
     return ThemedBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -345,27 +443,26 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
             text: 'Редактирование пароля',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: ThemeManager.currentTheme == AppTheme.dark 
-              ? AppColors.background 
+          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
+              ? AppColors.background
               : Colors.black.withOpacity(0.3),
           elevation: 0,
           actions: [
             IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
+              icon: Icon(Icons.delete, color: AppColors.error),
               onPressed: isLoading ? null : deletePassword,
             ),
           ],
         ),
         body: Container(
           decoration: ThemeManager.currentTheme != AppTheme.dark
-              ? BoxDecoration(
-                  color: Colors.black.withOpacity(0.1),
-                )
+              ? BoxDecoration(color: Colors.black.withOpacity(0.1))
               : null,
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(20.0),
             child: Column(
               children: [
+                // Site field with favicon
                 ThemedTextField(
                   controller: siteController,
                   hintText: 'Сайт',
@@ -400,31 +497,22 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                                     width: 20,
                                     height: 20,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        width: 20,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: const Icon(
-                                          Icons.language,
-                                          size: 12,
-                                          color: Colors.grey,
-                                        ),
-                                      );
-                                    },
+                                    errorBuilder: (_, __, ___) => Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(Icons.language, size: 12, color: Colors.grey),
+                                    ),
                                   ),
                           ),
                         )
                       : const Icon(Icons.language, color: Colors.grey),
                 ),
                 const SizedBox(height: 16),
-                ThemedTextField(
-                  controller: emailController,
-                  hintText: 'Логин',
-                ),
+                ThemedTextField(controller: emailController, hintText: 'Логин'),
                 const SizedBox(height: 16),
                 ThemedTextField(
                   controller: passwordController,
@@ -435,9 +523,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.refresh),
                     onPressed: isGeneratingPassword ? null : generatePassword,
@@ -457,6 +543,66 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 16),
+
+                // ── Folder picker ──────────────────────────────────────────
+                if (_folders.isNotEmpty) ...[
+                  ThemedContainer(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: _showFolderPicker,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            if (selectedFolder != null &&
+                                (selectedFolder as Map).isNotEmpty) ...[
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: _colorFromHex(
+                                          selectedFolder['color'] as String? ?? '#5D52D2')
+                                      .withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  _iconFromName(
+                                      selectedFolder['icon'] as String? ?? 'folder'),
+                                  color: _colorFromHex(
+                                      selectedFolder['color'] as String? ?? '#5D52D2'),
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  selectedFolder['name'] as String? ?? '',
+                                  style: TextStyle(color: AppColors.text, fontSize: 15),
+                                ),
+                              ),
+                            ] else ...[
+                              Icon(Icons.folder_open,
+                                  color: AppColors.text.withOpacity(0.5), size: 22),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Выбрать папку (необязательно)',
+                                  style: TextStyle(
+                                      color: AppColors.text.withOpacity(0.6), fontSize: 15),
+                                ),
+                              ),
+                            ],
+                            Icon(Icons.chevron_right,
+                                color: AppColors.text.withOpacity(0.4)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // ── Toggles ────────────────────────────────────────────────
                 ThemedContainer(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
@@ -468,11 +614,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                       ),
                       Switch(
                         value: has2FA,
-                        onChanged: (value) {
-                          setState(() {
-                            has2FA = value;
-                          });
-                        },
+                        onChanged: (value) => setState(() => has2FA = value),
                         activeColor: AppColors.button,
                       ),
                     ],
@@ -493,9 +635,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                         onChanged: (value) {
                           setState(() {
                             hasSeedPhrase = value;
-                            if (!value) {
-                              seedPhraseController.clear();
-                            }
+                            if (!value) seedPhraseController.clear();
                           });
                         },
                         activeColor: AppColors.button,
@@ -503,6 +643,8 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+
                 if (errorMessage != null)
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -511,10 +653,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
-                    child: Text(
-                      errorMessage!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
+                    child: Text(errorMessage!, style: const TextStyle(color: Colors.red)),
                   ),
                 const SizedBox(height: 16),
                 isLoading
@@ -531,4 +670,4 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       ),
     );
   }
-} 
+}
