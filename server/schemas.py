@@ -1,20 +1,57 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import re
 
 
 # ── Folder Schemas ────────────────────────────────────────────────────────────
 
+_HEX_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+_ALLOWED_ICONS = {
+    'folder', 'work', 'home', 'lock', 'star', 'favorite',
+    'shopping_cart', 'school', 'code', 'gaming', 'bank',
+    'email', 'cloud', 'social', 'crypto', 'vpn_key',
+}
+
+
 class FolderCreate(BaseModel):
-    name: str
-    color: str = "#5D52D2"
-    icon: str = "folder"
+    name: str = Field(..., min_length=1, max_length=64)
+    color: str = Field("#5D52D2", max_length=7)
+    icon: str = Field("folder", max_length=32)
+
+    @field_validator('color')
+    @classmethod
+    def validate_color(cls, v: str) -> str:
+        if not _HEX_COLOR_RE.match(v):
+            raise ValueError('color must be a valid hex color, e.g. #5D52D2')
+        return v
+
+    @field_validator('icon')
+    @classmethod
+    def validate_icon(cls, v: str) -> str:
+        if v not in _ALLOWED_ICONS:
+            raise ValueError(f'icon must be one of: {", ".join(sorted(_ALLOWED_ICONS))}')
+        return v
 
 
 class FolderUpdate(BaseModel):
-    name: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=64)
+    color: Optional[str] = Field(None, max_length=7)
+    icon: Optional[str] = Field(None, max_length=32)
+
+    @field_validator('color')
+    @classmethod
+    def validate_color(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _HEX_COLOR_RE.match(v):
+            raise ValueError('color must be a valid hex color, e.g. #5D52D2')
+        return v
+
+    @field_validator('icon')
+    @classmethod
+    def validate_icon(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in _ALLOWED_ICONS:
+            raise ValueError(f'icon must be one of: {", ".join(sorted(_ALLOWED_ICONS))}')
+        return v
 
 
 class FolderResponse(BaseModel):
@@ -59,17 +96,21 @@ class Token(BaseModel):
     two_fa_required: bool = False
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 class PasswordBase(BaseModel):
-    site_url: str
-    site_login: str
+    site_url: str = Field(..., max_length=2048)
+    site_login: str = Field(..., max_length=512)
     has_2fa: bool = False
     has_seed_phrase: bool = False
     folder_id: Optional[int] = None
 
 
 class PasswordCreate(PasswordBase):
-    encrypted_payload: str # Client-side encrypted
-    notes_encrypted: Optional[str] = None
+    encrypted_payload: str = Field(..., max_length=2 * 1024 * 1024)  # 2 MB
+    notes_encrypted: Optional[str] = Field(None, max_length=256 * 1024)  # 256 KB
 
 class PasswordUpdate(PasswordCreate):
     pass
@@ -107,7 +148,7 @@ class TOTPSetupResponse(BaseModel):
 
 class TOTPConfirmRequest(BaseModel):
     user_id: Optional[int] = None
-    code: str
+    code: str = Field(..., min_length=6, max_length=6, pattern=r'^\d{6}$')
 
 
 class AuditResponse(BaseModel):

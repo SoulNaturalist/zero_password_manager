@@ -83,16 +83,16 @@ def decrypt_data(encrypted_payload_b64: str, key: bytes) -> str:
         payload = base64.b64decode(encrypted_payload_b64)
         if len(payload) < AES_NONCE_LEN + 16:  # nonce (12) + min tag (16)
             raise ValueError("Payload too short")
-        
+
         nonce = payload[:AES_NONCE_LEN]
         ciphertext_with_tag = payload[AES_NONCE_LEN:]
         aesgcm = AESGCM(key)
         return aesgcm.decrypt(nonce, ciphertext_with_tag, None).decode()
-    except Exception as e:
-        # In production, log this specifically for security auditing
+    except Exception:
+        # SECURITY: never expose internal decryption errors to the caller
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Decryption failed: {str(e)}"
+            detail="Decryption failed"
         )
 
 # Auth Dependency
