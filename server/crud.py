@@ -1,6 +1,7 @@
 import httpx
 import re
 from typing import Optional, List
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from fastapi import BackgroundTasks, HTTPException, status
 from . import models, schemas, auth
@@ -428,3 +429,356 @@ def is_token_blacklisted(db: Session, jti: str) -> bool:
         .filter(models.TokenBlacklist.jti == jti)
         .first()
     ) is not None
+
+
+# ── Password Rotation CRUD ────────────────────────────────────────────────────
+
+def set_rotation_config(db: Session, password_id: int, user_id: int,
+                        rotation_enabled: bool, rotation_interval_days: Optional[int]):
+    pwd = db.query(models.Password).filter(
+        models.Password.id == password_id,
+        models.Password.user_id == user_id,
+    ).first()
+    if not pwd:
+        raise HTTPException(status_code=404, detail="Password not found")
+    pwd.rotation_enabled = rotation_enabled
+    pwd.rotation_interval_days = rotation_interval_days
+    db.commit()
+    db.refresh(pwd)
+    return pwd
+
+
+def record_rotation(db: Session, password_id: int, user_id: int,
+                    encrypted_payload: str,
+                    notes_encrypted: Optional[str],
+                    encrypted_metadata,
+                    background_tasks: BackgroundTasks = None):
+    pwd = db.query(models.Password).filter(
+        models.Password.id == password_id,
+        models.Password.user_id == user_id,
+    ).first()
+    if not pwd:
+        raise HTTPException(status_code=404, detail="Password not found")
+    pwd.encrypted_payload = encrypted_payload
+    if notes_encrypted is not None:
+        pwd.notes_encrypted = notes_encrypted
+    if encrypted_metadata is not None:
+        pwd.encrypted_metadata = encrypted_metadata
+    pwd.last_rotated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(pwd)
+    audit_event(db, user_id, "password_rotated", {"password_id": password_id},
+                background_tasks=background_tasks)
+    return pwd
+
+
+def get_passwords_due_for_rotation(db: Session, user_id: int) -> List[models.Password]:
+    """Return passwords with rotation enabled whose next rotation date has passed."""
+    now = datetime.now(timezone.utc)
+    passwords = db.query(models.Password).filter(
+        models.Password.user_id == user_id,
+        models.Password.rotation_enabled == True,
+        models.Password.rotation_interval_days.isnot(None),
+    ).all()
+    due = []
+    for p in passwords:
+        if p.last_rotated_at is None:
+            due.append(p)
+        else:
+            last = p.last_rotated_at
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if now >= last + timedelta(days=p.rotation_interval_days):
+                due.append(p)
+    return due
+
+
+# ── Secure Sharing CRUD ───────────────────────────────────────────────────────
+
+def get_user_by_login(db: Session, login: str):
+    return db.query(models.User).filter(models.User.login == login).first()
+
+
+def create_share(db: Session, owner_id: int, data: schemas.ShareCreate,
+                 background_tasks: BackgroundTasks = None) -> models.SharedPassword:
+    # Resolve recipient
+    recipient = get_user_by_login(db, data.recipient_login)
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient user not found")
+    if recipient.id == owner_id:
+        raise HTTPException(status_code=400, detail="Cannot share with yourself")
+
+    expires_at = None
+    if data.expires_in_days:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
+
+    share = models.SharedPassword(
+        owner_id=owner_id,
+        recipient_id=recipient.id,
+        recipient_login=data.recipient_login,
+        encrypted_payload=data.encrypted_payload,
+        encrypted_metadata=data.encrypted_metadata,
+        label=data.label,
+        status="pending",
+        expires_at=expires_at,
+    )
+    db.add(share)
+    db.commit()
+    db.refresh(share)
+    audit_event(db, owner_id, "share_created",
+                {"recipient": data.recipient_login, "share_id": share.id},
+                background_tasks=background_tasks)
+    return share
+
+
+def get_shares_incoming(db: Session, user_id: int) -> List[models.SharedPassword]:
+    return db.query(models.SharedPassword).filter(
+        models.SharedPassword.recipient_id == user_id,
+        models.SharedPassword.status != "revoked",
+    ).order_by(models.SharedPassword.created_at.desc()).all()
+
+
+def get_shares_outgoing(db: Session, user_id: int) -> List[models.SharedPassword]:
+    return db.query(models.SharedPassword).filter(
+        models.SharedPassword.owner_id == user_id,
+        models.SharedPassword.status != "revoked",
+    ).order_by(models.SharedPassword.created_at.desc()).all()
+
+
+def accept_share(db: Session, share_id: int, user_id: int,
+                 background_tasks: BackgroundTasks = None) -> models.SharedPassword:
+    share = db.query(models.SharedPassword).filter(
+        models.SharedPassword.id == share_id,
+        models.SharedPassword.recipient_id == user_id,
+        models.SharedPassword.status == "pending",
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found or already processed")
+    # Check expiry
+    if share.expires_at:
+        exp = share.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > exp:
+            share.status = "revoked"
+            db.commit()
+            raise HTTPException(status_code=410, detail="Share has expired")
+    share.status = "accepted"
+    db.commit()
+    db.refresh(share)
+    audit_event(db, user_id, "share_accepted", {"share_id": share_id},
+                background_tasks=background_tasks)
+    return share
+
+
+def revoke_share(db: Session, share_id: int, owner_id: int,
+                 background_tasks: BackgroundTasks = None):
+    share = db.query(models.SharedPassword).filter(
+        models.SharedPassword.id == share_id,
+        models.SharedPassword.owner_id == owner_id,
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+    share.status = "revoked"
+    db.commit()
+    audit_event(db, owner_id, "share_revoked", {"share_id": share_id},
+                background_tasks=background_tasks)
+
+
+def get_share_detail(db: Session, share_id: int, user_id: int) -> models.SharedPassword:
+    """Get full share including encrypted payload — only for recipient."""
+    share = db.query(models.SharedPassword).filter(
+        models.SharedPassword.id == share_id,
+        models.SharedPassword.recipient_id == user_id,
+        models.SharedPassword.status == "accepted",
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found or not yet accepted")
+    # Check expiry
+    if share.expires_at:
+        exp = share.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > exp:
+            share.status = "revoked"
+            db.commit()
+            raise HTTPException(status_code=410, detail="Share has expired")
+    return share
+
+
+# ── Emergency Access CRUD ─────────────────────────────────────────────────────
+
+def create_emergency_access(db: Session, grantor_id: int,
+                             data: schemas.EmergencyInvite,
+                             background_tasks: BackgroundTasks = None) -> models.EmergencyAccess:
+    wait_days = max(1, min(data.wait_days, 30))  # clamp 1-30
+    grantee = get_user_by_login(db, data.grantee_login)
+    if not grantee:
+        raise HTTPException(status_code=404, detail="Grantee user not found")
+    if grantee.id == grantor_id:
+        raise HTTPException(status_code=400, detail="Cannot add yourself as emergency contact")
+
+    # Prevent duplicate active invites
+    existing = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.grantor_id == grantor_id,
+        models.EmergencyAccess.grantee_id == grantee.id,
+        models.EmergencyAccess.status.in_(["invited", "accepted", "waiting"]),
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Emergency access already active for this user")
+
+    ea = models.EmergencyAccess(
+        grantor_id=grantor_id,
+        grantee_id=grantee.id,
+        wait_days=wait_days,
+        status="invited",
+    )
+    db.add(ea)
+    db.commit()
+    db.refresh(ea)
+    audit_event(db, grantor_id, "emergency_access_invited",
+                {"grantee": data.grantee_login}, background_tasks=background_tasks)
+    return ea
+
+
+def list_emergency_access(db: Session, user_id: int) -> List[models.EmergencyAccess]:
+    return db.query(models.EmergencyAccess).filter(
+        (models.EmergencyAccess.grantor_id == user_id) |
+        (models.EmergencyAccess.grantee_id == user_id),
+    ).order_by(models.EmergencyAccess.created_at.desc()).all()
+
+
+def accept_emergency_invite(db: Session, ea_id: int, grantee_id: int,
+                             background_tasks: BackgroundTasks = None) -> models.EmergencyAccess:
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantee_id == grantee_id,
+        models.EmergencyAccess.status == "invited",
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    ea.status = "accepted"
+    db.commit()
+    db.refresh(ea)
+    audit_event(db, grantee_id, "emergency_access_accepted", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+    return ea
+
+
+def request_emergency_access(db: Session, ea_id: int, grantee_id: int,
+                              background_tasks: BackgroundTasks = None) -> models.EmergencyAccess:
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantee_id == grantee_id,
+        models.EmergencyAccess.status == "accepted",
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="Emergency access not found or not accepted")
+    ea.status = "waiting"
+    ea.requested_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(ea)
+    audit_event(db, grantee_id, "emergency_access_requested", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+    return ea
+
+
+def checkin_emergency_access(db: Session, ea_id: int, grantor_id: int,
+                              background_tasks: BackgroundTasks = None) -> models.EmergencyAccess:
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantor_id == grantor_id,
+        models.EmergencyAccess.status == "waiting",
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="No pending emergency request found")
+    ea.last_checkin_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(ea)
+    audit_event(db, grantor_id, "emergency_checkin", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+    return ea
+
+
+def deny_emergency_access(db: Session, ea_id: int, grantor_id: int,
+                           background_tasks: BackgroundTasks = None):
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantor_id == grantor_id,
+        models.EmergencyAccess.status == "waiting",
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="No pending emergency request found")
+    ea.status = "denied"
+    db.commit()
+    audit_event(db, grantor_id, "emergency_access_denied", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+
+
+def revoke_emergency_access(db: Session, ea_id: int, grantor_id: int,
+                             background_tasks: BackgroundTasks = None):
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantor_id == grantor_id,
+        models.EmergencyAccess.status.notin_(["revoked"]),
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="Emergency access not found")
+    ea.status = "revoked"
+    db.commit()
+    audit_event(db, grantor_id, "emergency_access_revoked", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+
+
+def upload_emergency_vault(db: Session, ea_id: int, grantor_id: int,
+                            encrypted_vault: str,
+                            background_tasks: BackgroundTasks = None) -> models.EmergencyAccess:
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantor_id == grantor_id,
+        models.EmergencyAccess.status.in_(["accepted", "waiting"]),
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=404, detail="Emergency access not found")
+    ea.encrypted_vault = encrypted_vault
+    db.commit()
+    db.refresh(ea)
+    audit_event(db, grantor_id, "emergency_vault_uploaded", {"ea_id": ea_id},
+                background_tasks=background_tasks)
+    return ea
+
+
+def get_emergency_vault(db: Session, ea_id: int, grantee_id: int) -> models.EmergencyAccess:
+    ea = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.id == ea_id,
+        models.EmergencyAccess.grantee_id == grantee_id,
+        models.EmergencyAccess.status == "approved",
+    ).first()
+    if not ea:
+        raise HTTPException(status_code=403, detail="Access not approved or not found")
+    if not ea.encrypted_vault:
+        raise HTTPException(status_code=404, detail="No vault data uploaded by grantor yet")
+    return ea
+
+
+def process_emergency_approvals(db: Session):
+    """Auto-approve emergency requests where the wait period has elapsed.
+    Called periodically from a background scheduler.
+    """
+    now = datetime.now(timezone.utc)
+    pending = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.status == "waiting",
+    ).all()
+    for ea in pending:
+        # Timer resets on each grantor check-in
+        reference = ea.last_checkin_at or ea.requested_at
+        if reference is None:
+            continue
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        if now >= reference + timedelta(days=ea.wait_days):
+            ea.status = "approved"
+            ea.approved_at = now
+            audit_event(db, ea.grantee_id, "emergency_access_auto_approved",
+                        {"ea_id": ea.id, "grantor_id": ea.grantor_id})
+    db.commit()

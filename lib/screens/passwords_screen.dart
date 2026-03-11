@@ -297,6 +297,26 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     _searchFocusNode.unfocus();
   }
 
+  // ── rotation helpers ─────────────────────────────────────────────────────────
+
+  bool _isRotationDue(Map<String, dynamic> item) {
+    final intervalDays = item['rotation_interval_days'] as int?;
+    if (intervalDays == null) return false;
+    final lastRotatedStr = item['last_rotated_at'] as String?;
+    if (lastRotatedStr == null) return true; // never rotated
+    try {
+      final lastRotated = DateTime.parse(lastRotatedStr);
+      return DateTime.now().isAfter(
+          lastRotated.add(Duration(days: intervalDays)));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _sharePassword(Map<String, dynamic> item) {
+    Navigator.pushNamed(context, '/sharing');
+  }
+
   // ── clipboard helpers ───────────────────────────────────────────────────────
 
   void _copyPassword(String encryptedPassword) async {
@@ -976,6 +996,16 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                         ),
                         const SizedBox(width: 12),
                       ],
+                      // Rotation due indicator
+                      if (item['rotation_enabled'] == true &&
+                          _isRotationDue(item)) ...[
+                        Tooltip(
+                          message: 'Password rotation due',
+                          child: Icon(Icons.autorenew,
+                              color: Colors.orange, size: 20),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       if (item['has_seed_phrase'] == true) ...[
                         IconButton(
                           icon: Icon(Icons.vpn_key, color: AppColors.button),
@@ -984,6 +1014,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                         ),
                         const SizedBox(width: 12),
                       ],
+                      // Share button
+                      IconButton(
+                        icon: Icon(Icons.share, color: AppColors.button),
+                        onPressed: () => _sharePassword(item),
+                        tooltip: 'Поделиться паролем',
+                      ),
                       IconButton(
                         icon: Icon(Icons.edit, color: AppColors.button),
                         onPressed: () => _navigateToEditPassword(item),

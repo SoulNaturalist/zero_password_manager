@@ -17,6 +17,10 @@ class VaultService {
 
   bool get isLocked => _masterKey == null;
 
+  /// Exposes the in-memory master key for zero-knowledge re-encryption
+  /// (sharing, emergency vault upload). Returns null when vault is locked.
+  SecretKey? get masterKey => _masterKey;
+
   void setKey(SecretKey key) {
     _masterKey = key;
   }

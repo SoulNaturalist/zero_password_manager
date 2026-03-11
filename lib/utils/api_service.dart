@@ -29,11 +29,16 @@ class ApiService {
   }
 
   static Future<http.Response> put(String url, {Map<String, String>? headers, Object? body}) async {
-    return _handleRequest(() => http.put(Uri.parse(url), headers: headers, body: body), url, headers: headers, body: body);
+    final combinedHeaders = await _getHeaders();
+    if (headers != null) combinedHeaders.addAll(headers);
+    final encodedBody = body is String ? body : json.encode(body);
+    return _handleRequest(() => http.put(Uri.parse(url), headers: combinedHeaders, body: encodedBody), url, headers: combinedHeaders, body: encodedBody);
   }
 
   static Future<http.Response> delete(String url, {Map<String, String>? headers}) async {
-    return _handleRequest(() => http.delete(Uri.parse(url), headers: headers), url, headers: headers);
+    final combinedHeaders = await _getHeaders();
+    if (headers != null) combinedHeaders.addAll(headers);
+    return _handleRequest(() => http.delete(Uri.parse(url), headers: combinedHeaders), url, headers: combinedHeaders);
   }
 
   static Future<http.Response> _handleRequest(

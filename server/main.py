@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hmac
 import secrets
@@ -22,7 +23,6 @@ from webauthn.helpers import (
     options_to_json,
 )
 import random
-import asyncio
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -104,6 +104,8 @@ def validate_base64(data: str) -> bool:
 
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
+# Apply column migrations for tables that already exist
+models.run_migrations(engine)
 
 # ── Startup security assertions ───────────────────────────────────────────────
 # JWT_SECRET_KEY is validated inside Settings.__init__ — server will not start
@@ -957,6 +959,273 @@ async def logout(
 def health():
     """Minimal health check to avoid information disclosure."""
     return {"status": "ok"}
+
+
+# ── Background scheduler ──────────────────────────────────────────────────────
+
+async def _emergency_approval_loop():
+    """Process auto-approvals every hour."""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            try:
+                crud.process_emergency_approvals(db)
+            finally:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
+        except Exception as exc:
+            logger.error(f"Emergency approval loop error: {exc}")
+
+
+@app.on_event("startup")
+async def start_scheduler():
+    asyncio.create_task(_emergency_approval_loop())
+
+
+# ── Password Rotation Endpoints ───────────────────────────────────────────────
+
+@app.put("/passwords/{password_id}/rotation", response_model=schemas.PasswordResponse)
+@limiter.limit("30/minute")
+def configure_rotation(request: Request,
+                       password_id: int,
+                       config: schemas.RotationConfig,
+                       background_tasks: BackgroundTasks,
+                       current_user: models.User = Depends(auth.get_current_user),
+                       db: Session = Depends(get_db)):
+    """Enable / disable automatic rotation for a stored password."""
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"),
+                            background_tasks=background_tasks)
+    updated = crud.set_rotation_config(
+        db, password_id, current_user.id,
+        config.rotation_enabled, config.rotation_interval_days,
+    )
+    return updated
+
+
+@app.post("/passwords/{password_id}/rotate", response_model=schemas.PasswordResponse)
+@limiter.limit("30/minute")
+def rotate_password(request: Request,
+                    password_id: int,
+                    payload: schemas.RotationUpdate,
+                    background_tasks: BackgroundTasks,
+                    current_user: models.User = Depends(auth.get_current_user),
+                    db: Session = Depends(get_db)):
+    """Client submits the freshly generated, re-encrypted password after rotation."""
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"),
+                            background_tasks=background_tasks)
+    if not validate_base64(payload.encrypted_payload):
+        raise HTTPException(status_code=400, detail="Invalid encrypted payload (not base64)")
+    updated = crud.record_rotation(
+        db, password_id, current_user.id,
+        payload.encrypted_payload,
+        payload.notes_encrypted,
+        payload.encrypted_metadata,
+        background_tasks=background_tasks,
+    )
+    return updated
+
+
+@app.get("/passwords/rotation-due", response_model=List[schemas.RotationDueItem])
+@limiter.limit("30/minute")
+def get_rotation_due(request: Request,
+                     current_user: models.User = Depends(auth.get_current_user),
+                     db: Session = Depends(get_db)):
+    """Return passwords whose rotation interval has elapsed."""
+    return crud.get_passwords_due_for_rotation(db, current_user.id)
+
+
+# ── Secure Sharing Endpoints ──────────────────────────────────────────────────
+
+@app.post("/share", response_model=schemas.ShareResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
+def create_share(request: Request,
+                 share: schemas.ShareCreate,
+                 background_tasks: BackgroundTasks,
+                 current_user: models.User = Depends(auth.get_current_user),
+                 db: Session = Depends(get_db)):
+    """Share an encrypted password with another user.
+
+    The client must re-encrypt the password payload specifically for the
+    recipient before sending it — the server never sees plaintext.
+    """
+    if not validate_base64(share.encrypted_payload):
+        raise HTTPException(status_code=400, detail="Invalid encrypted payload (not base64)")
+    return crud.create_share(db, current_user.id, share, background_tasks=background_tasks)
+
+
+@app.get("/share/incoming", response_model=List[schemas.ShareResponse])
+def get_incoming_shares(current_user: models.User = Depends(auth.get_current_user),
+                        db: Session = Depends(get_db)):
+    """List shares sent to the current user."""
+    return crud.get_shares_incoming(db, current_user.id)
+
+
+@app.get("/share/outgoing", response_model=List[schemas.ShareResponse])
+def get_outgoing_shares(current_user: models.User = Depends(auth.get_current_user),
+                        db: Session = Depends(get_db)):
+    """List shares created by the current user."""
+    return crud.get_shares_outgoing(db, current_user.id)
+
+
+@app.get("/share/{share_id}", response_model=schemas.ShareDetailResponse)
+def get_share(share_id: int,
+              background_tasks: BackgroundTasks,
+              current_user: models.User = Depends(auth.get_current_user),
+              db: Session = Depends(get_db)):
+    """Retrieve full share data (including encrypted payload) — recipient only."""
+    share = crud.get_share_detail(db, share_id, current_user.id)
+    crud.audit_event(db, current_user.id, "share_viewed", {"share_id": share_id},
+                     background_tasks=background_tasks)
+    return share
+
+
+@app.post("/share/{share_id}/accept", response_model=schemas.ShareResponse)
+def accept_share(share_id: int,
+                 background_tasks: BackgroundTasks,
+                 current_user: models.User = Depends(auth.get_current_user),
+                 db: Session = Depends(get_db)):
+    """Recipient accepts a pending share."""
+    return crud.accept_share(db, share_id, current_user.id,
+                             background_tasks=background_tasks)
+
+
+@app.delete("/share/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_share(share_id: int,
+                 background_tasks: BackgroundTasks,
+                 current_user: models.User = Depends(auth.get_current_user),
+                 db: Session = Depends(get_db)):
+    """Owner revokes a share."""
+    crud.revoke_share(db, share_id, current_user.id,
+                      background_tasks=background_tasks)
+
+
+# ── Emergency Access Endpoints ────────────────────────────────────────────────
+
+@app.post("/emergency-access", response_model=schemas.EmergencyAccessResponse,
+          status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+def invite_emergency_contact(request: Request,
+                              invite: schemas.EmergencyInvite,
+                              background_tasks: BackgroundTasks,
+                              current_user: models.User = Depends(auth.get_current_user),
+                              db: Session = Depends(get_db)):
+    """Grantor invites a trusted person as emergency contact."""
+    ea = crud.create_emergency_access(db, current_user.id, invite,
+                                      background_tasks=background_tasks)
+    return _ea_response(ea, db)
+
+
+@app.get("/emergency-access", response_model=List[schemas.EmergencyAccessResponse])
+def list_emergency_contacts(current_user: models.User = Depends(auth.get_current_user),
+                             db: Session = Depends(get_db)):
+    """List all emergency access entries for the current user (as grantor or grantee)."""
+    entries = crud.list_emergency_access(db, current_user.id)
+    return [_ea_response(ea, db) for ea in entries]
+
+
+@app.post("/emergency-access/{ea_id}/accept", response_model=schemas.EmergencyAccessResponse)
+def accept_emergency(ea_id: int,
+                     background_tasks: BackgroundTasks,
+                     current_user: models.User = Depends(auth.get_current_user),
+                     db: Session = Depends(get_db)):
+    """Grantee accepts an invitation."""
+    ea = crud.accept_emergency_invite(db, ea_id, current_user.id,
+                                      background_tasks=background_tasks)
+    return _ea_response(ea, db)
+
+
+@app.post("/emergency-access/{ea_id}/request-access", response_model=schemas.EmergencyAccessResponse)
+def request_emergency(ea_id: int,
+                      background_tasks: BackgroundTasks,
+                      current_user: models.User = Depends(auth.get_current_user),
+                      db: Session = Depends(get_db)):
+    """Grantee triggers the emergency access timer."""
+    ea = crud.request_emergency_access(db, ea_id, current_user.id,
+                                       background_tasks=background_tasks)
+    return _ea_response(ea, db)
+
+
+@app.post("/emergency-access/{ea_id}/checkin", response_model=schemas.EmergencyAccessResponse)
+def checkin_emergency(ea_id: int,
+                      background_tasks: BackgroundTasks,
+                      current_user: models.User = Depends(auth.get_current_user),
+                      db: Session = Depends(get_db)):
+    """Grantor confirms they are alive — resets the approval timer."""
+    ea = crud.checkin_emergency_access(db, ea_id, current_user.id,
+                                       background_tasks=background_tasks)
+    return _ea_response(ea, db)
+
+
+@app.post("/emergency-access/{ea_id}/deny", status_code=status.HTTP_204_NO_CONTENT)
+def deny_emergency(ea_id: int,
+                   background_tasks: BackgroundTasks,
+                   current_user: models.User = Depends(auth.get_current_user),
+                   db: Session = Depends(get_db)):
+    """Grantor explicitly denies the pending emergency request."""
+    crud.deny_emergency_access(db, ea_id, current_user.id,
+                                background_tasks=background_tasks)
+
+
+@app.delete("/emergency-access/{ea_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_emergency(ea_id: int,
+                     background_tasks: BackgroundTasks,
+                     current_user: models.User = Depends(auth.get_current_user),
+                     db: Session = Depends(get_db)):
+    """Grantor revokes an emergency access grant."""
+    crud.revoke_emergency_access(db, ea_id, current_user.id,
+                                  background_tasks=background_tasks)
+
+
+@app.post("/emergency-access/{ea_id}/vault", response_model=schemas.EmergencyAccessResponse)
+def upload_emergency_vault(ea_id: int,
+                            body: schemas.EmergencyVaultUpload,
+                            background_tasks: BackgroundTasks,
+                            current_user: models.User = Depends(auth.get_current_user),
+                            db: Session = Depends(get_db)):
+    """Grantor pre-uploads an encrypted vault snapshot for the grantee to use in emergency."""
+    if not validate_base64(body.encrypted_vault):
+        raise HTTPException(status_code=400, detail="Invalid encrypted vault (not base64)")
+    ea = crud.upload_emergency_vault(db, ea_id, current_user.id, body.encrypted_vault,
+                                      background_tasks=background_tasks)
+    return _ea_response(ea, db)
+
+
+@app.get("/emergency-access/{ea_id}/vault", response_model=schemas.EmergencyVaultResponse)
+def get_emergency_vault(ea_id: int,
+                         background_tasks: BackgroundTasks,
+                         current_user: models.User = Depends(auth.get_current_user),
+                         db: Session = Depends(get_db)):
+    """Grantee retrieves the encrypted vault after access has been approved."""
+    ea = crud.get_emergency_vault(db, ea_id, current_user.id)
+    crud.audit_event(db, current_user.id, "emergency_vault_accessed",
+                     {"ea_id": ea_id, "grantor_id": ea.grantor_id},
+                     background_tasks=background_tasks)
+    return {"encrypted_vault": ea.encrypted_vault}
+
+
+def _ea_response(ea: models.EmergencyAccess, db: Session) -> dict:
+    """Build EmergencyAccessResponse enriched with login names."""
+    grantor = db.query(models.User).filter(models.User.id == ea.grantor_id).first()
+    grantee = db.query(models.User).filter(models.User.id == ea.grantee_id).first()
+    return {
+        "id": ea.id,
+        "grantor_id": ea.grantor_id,
+        "grantee_id": ea.grantee_id,
+        "grantor_login": grantor.login if grantor else None,
+        "grantee_login": grantee.login if grantee else None,
+        "status": ea.status,
+        "wait_days": ea.wait_days,
+        "last_checkin_at": ea.last_checkin_at,
+        "requested_at": ea.requested_at,
+        "approved_at": ea.approved_at,
+        "created_at": ea.created_at,
+    }
 
 
 if __name__ == "__main__":

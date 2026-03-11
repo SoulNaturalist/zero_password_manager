@@ -3,6 +3,26 @@ from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from .database import Base
 
+
+# ── Migration helper ──────────────────────────────────────────────────────────
+
+def run_migrations(engine):
+    """Add new columns to existing tables (idempotent, SQLite-safe)."""
+    with engine.connect() as conn:
+        # passwords: rotation fields
+        _add_column_if_missing(conn, "passwords", "rotation_enabled", "BOOLEAN DEFAULT 0")
+        _add_column_if_missing(conn, "passwords", "rotation_interval_days", "INTEGER")
+        _add_column_if_missing(conn, "passwords", "last_rotated_at", "DATETIME")
+
+
+def _add_column_if_missing(conn, table: str, column: str, col_def: str):
+    from sqlalchemy import text
+    rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+    existing = {row[1] for row in rows}
+    if column not in existing:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"))
+        conn.commit()
+
 class User(Base):
     __tablename__ = "users"
 
@@ -93,6 +113,11 @@ class Password(Base):
     has_2fa = Column(Boolean, default=False)
     has_seed_phrase = Column(Boolean, default=False)
 
+    # Automatic password rotation
+    rotation_enabled = Column(Boolean, default=False)
+    rotation_interval_days = Column(Integer, nullable=True)
+    last_rotated_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -138,3 +163,68 @@ class Audit(Base):
     meta = Column(JSON)
     ip_address = Column(String)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ── Secure Password Sharing ───────────────────────────────────────────────────
+
+class SharedPassword(Base):
+    """Zero-knowledge password share.
+
+    The owner re-encrypts the password client-side and sends the resulting
+    ``encrypted_payload`` here.  The server never sees the plaintext.
+    """
+    __tablename__ = "shared_passwords"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # set after lookup by login
+    recipient_login = Column(String, nullable=False, index=True)
+    # Client re-encrypts the password specifically for the recipient
+    encrypted_payload = Column(String, nullable=False)
+    encrypted_metadata = Column(JSON, nullable=True)
+    label = Column(String, nullable=True)  # Human-readable label (site name, etc.)
+    status = Column(String, default="pending")  # pending | accepted | revoked
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    owner = relationship("User", foreign_keys=[owner_id], backref="shares_sent")
+    recipient = relationship("User", foreign_keys=[recipient_id], backref="shares_received")
+
+
+# ── Emergency Access ──────────────────────────────────────────────────────────
+
+class EmergencyAccess(Base):
+    """Trusted-person emergency access.
+
+    Flow:
+    1. Grantor invites grantee  →  status = invited
+    2. Grantee accepts          →  status = accepted
+    3. Grantee requests access  →  status = waiting, requested_at = now
+       Grantor can check-in     →  resets timer
+       Grantor can deny         →  status = denied
+    4. After wait_days with no checkin/deny  →  status = approved
+    5. Grantor can revoke any time           →  status = revoked
+
+    The grantor optionally pre-uploads an ``encrypted_vault`` so the grantee
+    can decrypt it with a shared key arranged out-of-band.
+    """
+    __tablename__ = "emergency_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grantor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    grantee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="invited")  # invited|accepted|waiting|approved|denied|revoked
+    wait_days = Column(Integer, default=7)
+    last_checkin_at = Column(DateTime, nullable=True)  # grantor last active confirmation
+    requested_at = Column(DateTime, nullable=True)      # when grantee triggered request
+    approved_at = Column(DateTime, nullable=True)
+    # Pre-uploaded vault: owner encrypts vault for grantee before emergency
+    encrypted_vault = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    grantor = relationship("User", foreign_keys=[grantor_id], backref="emergency_granted")
+    grantee = relationship("User", foreign_keys=[grantee_id], backref="emergency_received")

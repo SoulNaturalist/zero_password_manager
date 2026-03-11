@@ -13,6 +13,8 @@ import 'screens/biometric_test_screen.dart';
 import 'screens/password_history_screen.dart';
 import 'screens/folders_screen.dart';
 import 'screens/telegram_binding_screen.dart';
+import 'screens/sharing_screen.dart';
+import 'screens/emergency_screen.dart';
 import 'theme/colors.dart';
 import 'utils/config_test.dart';
 import 'services/cache_service.dart';
@@ -83,6 +85,8 @@ class _PasswordManagerAppState extends State<PasswordManagerApp> {
         '/password-history': (context) => const PasswordHistoryScreen(),
         '/folders': (context) => const FoldersScreen(),
         '/telegram-binding': (context) => const TelegramBindingScreen(),
+        '/sharing': (context) => const SharingScreen(),
+        '/emergency-access': (context) => const EmergencyScreen(),
       },
     );
   }

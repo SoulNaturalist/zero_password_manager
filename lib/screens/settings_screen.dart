@@ -971,9 +971,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () => Navigator.pushNamed(context, '/password-history'),
                 ),
-                
+
+                const SizedBox(height: 8),
+
+                // Безопасный шаринг
+                _buildSettingTile(
+                  icon: Icons.share,
+                  title: 'Безопасный шаринг',
+                  subtitle: 'Поделиться паролем с другим пользователем',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => Navigator.pushNamed(context, '/sharing'),
+                ),
+
+                const SizedBox(height: 8),
+
+                // Экстренный доступ
+                _buildSettingTile(
+                  icon: Icons.emergency,
+                  title: 'Экстренный доступ',
+                  subtitle: 'Назначить доверенное лицо для аварийного доступа',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => Navigator.pushNamed(context, '/emergency-access'),
+                ),
+
                 const SizedBox(height: 24),
-                
+
                 // Секция интерфейса
                 _buildSectionHeader('Интерфейс'),
                 

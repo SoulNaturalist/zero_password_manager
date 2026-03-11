@@ -50,4 +50,25 @@ class AppConfig {
   static String getFolderPasswordsUrl(int folderId) => '$apiUrl/folders/$folderId/passwords';
   static String getFolderUrl(int folderId) => '$apiUrl/folders/$folderId';
   static String getRevokeDeviceUrl(int deviceId) => '$apiUrl/webauthn/devices/$deviceId';
+
+  // Password Rotation
+  static String getRotationConfigUrl(int passwordId) => '$apiUrl/passwords/$passwordId/rotation';
+  static String getRotateUrl(int passwordId) => '$apiUrl/passwords/$passwordId/rotate';
+  static String get rotationDueUrl => '$apiUrl/passwords/rotation-due';
+
+  // Secure Sharing
+  static String get shareUrl => '$apiUrl/share';
+  static String get shareIncomingUrl => '$apiUrl/share/incoming';
+  static String get shareOutgoingUrl => '$apiUrl/share/outgoing';
+  static String getShareUrl(int shareId) => '$apiUrl/share/$shareId';
+  static String getShareAcceptUrl(int shareId) => '$apiUrl/share/$shareId/accept';
+
+  // Emergency Access
+  static String get emergencyAccessUrl => '$apiUrl/emergency-access';
+  static String getEmergencyAcceptUrl(int eaId) => '$apiUrl/emergency-access/$eaId/accept';
+  static String getEmergencyRequestUrl(int eaId) => '$apiUrl/emergency-access/$eaId/request-access';
+  static String getEmergencyCheckinUrl(int eaId) => '$apiUrl/emergency-access/$eaId/checkin';
+  static String getEmergencyDenyUrl(int eaId) => '$apiUrl/emergency-access/$eaId/deny';
+  static String getEmergencyRevokeUrl(int eaId) => '$apiUrl/emergency-access/$eaId';
+  static String getEmergencyVaultUrl(int eaId) => '$apiUrl/emergency-access/$eaId/vault';
 }
