@@ -1,303 +1,332 @@
 # 🔐 Zero Password Manager
-### Private • Self-Hosted • Zero-Knowledge • Built With Flutter
-
-<!--
-Keywords: Password Manager, Self-hosted, Zero-Knowledge, Privacy-first, No Cloud, Flutter, FastAPI, AES-256-GCM, Argon2id, Cyberpunk UI, Glassmorphism, Open Source, Security, Hardened 2FA, TOTP, Vault, Encrypted Storage, Password Folders.
-Description: A premium, privacy-focused, self-hosted password manager with a stunning Cyberpunk/Glassmorphism UI. Built with Flutter and FastAPI. No cloud, no tracking, just you and your data.
--->
 
 <p align="center">
-  <strong>Your data. Your server. Your rules.</strong><br/>
-  The password manager that never phones home.
+  <strong>Open-source · Self-hosted · Zero-knowledge · End-to-end encrypted</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/SoulNaturalist/zero_password_manager/releases/latest">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/SoulNaturalist/zero_password_manager?label=release&color=4CAF50">
+  </a>
+  <a href="LICENSE">
+    <img alt="License" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue">
+  </a>
+  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Python-009688?logo=fastapi">
+  <img alt="Encryption" src="https://img.shields.io/badge/encryption-AES--256--GCM-critical">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Android%20%7C%20iOS%20%7C%20Web%20%7C%20Desktop-lightgrey">
+</p>
+
+<p align="center">
+  <em>Your passwords. Your server. Your rules. No cloud. No subscriptions. No tracking.</em>
 </p>
 
 ---
 
-**Zero Password Manager** is an **open-source, self-hosted password manager** built with Flutter and FastAPI. Unlike every major commercial password manager, it stores your data **exclusively on hardware you own** — no cloud accounts, no subscription fees, no surveillance.
+<!--
+SEO Keywords: password manager, open source password manager, self-hosted password manager,
+encrypted password vault, zero knowledge password manager, privacy focused password storage,
+secure credential manager, AES-256 password manager, Flutter password manager, biometric password vault,
+no cloud password manager, local password manager, offline password manager, TOTP 2FA password manager
+-->
 
-If you've ever asked *"who actually has access to my passwords?"* — this is the answer.
+## What Is Zero Password Manager?
 
----
+**Zero Password Manager** is a free, open-source, self-hosted **encrypted password vault** built with Flutter and FastAPI. It gives you a beautiful mobile and desktop app backed by a server you run yourself — on your home lab, VPS, or Raspberry Pi.
 
-## 🎬 Demo — Flutter UI Preview
+Unlike commercial password managers, Zero stores **zero data on third-party servers**. Not "zero-knowledge" in the marketing sense — zero-cloud in the literal sense. Your encrypted vault lives exclusively on hardware you own.
 
-![Zero Password Manager Demo](assets/demo.gif)
-
-> **UI walkthrough:**
-> Splash → Login → Sign Up → 2FA Setup → PIN entry → Password Vault → Folders → Add Entry → Edit Entry → Settings
-> + Theme showcase: **Midnight Dark** · **Cyberpunk** (neon cyan/magenta) · **Glassmorphism** (blur glass cards)
-
----
-
-# 🚀 Why Zero Password Manager?
-
-## ☁️ Truly No Cloud — Not Just "Zero-Knowledge"
-
-Most password managers that claim "zero-knowledge" still host your encrypted blobs on **their servers**. That means:
-- They can be subpoenaed
-- They can be breached
-- They can be shut down (taking your data with them)
-- They can change their privacy policy tomorrow
-
-**Zero Password Manager takes a different approach:**
-
-> Your encrypted vault lives on **your machine**. Period.
-
-✔ No Google Cloud, AWS, Azure, or any third-party storage
-✔ No account to create on some company's website
-✔ No monthly fee that goes up every year
-✔ No "oops, we got breached" emails
-✔ No service discontinuation risk — it's your server
-✔ Works fully offline on your local network
-
-This is what **true data ownership** looks like.
+> **Self-hosting + end-to-end encryption + full auditability = true privacy.**
 
 ---
 
-## 🔐 Military-Grade Encryption, On Your Terms
+## ✨ Features
 
-Every password you save is encrypted **before it ever leaves your device**:
+| Feature | Details |
+|---|---|
+| 🔑 **Encrypted vault** | AES-256-GCM encryption, all passwords encrypted client-side before upload |
+| 🧠 **Zero-knowledge architecture** | Master password never leaves your device; server stores only encrypted blobs |
+| 🔒 **Argon2id key derivation** | Gold-standard KDF resistant to GPU/ASIC attacks (3 iterations, 64 MB memory) |
+| 📱 **Cross-platform** | Android, iOS, Web, Windows, macOS, Linux — one Flutter codebase |
+| 🛡️ **Mandatory 2FA** | TOTP from day one; works with Aegis, Google Authenticator, Bitwarden Auth |
+| 🤳 **Biometric unlock** | Fingerprint + Face ID; PIN fallback; auto-lock on inactivity |
+| 📁 **Password folders** | Organize credentials with custom names, 12 colors, 16 icons |
+| 📜 **Audit log** | Every vault read/write logged with timestamp and IP address |
+| 🕐 **Password history** | Full change history per entry; restore previous credentials |
+| 📥 **CSV import** | Migrate from Chrome, Firefox, Bitwarden, LastPass, 1Password |
+| 🔄 **Password rotation** | Built-in rotation reminders and history tracking |
+| 🚨 **Emergency access** | Configurable emergency access for trusted contacts |
+| 🤝 **Secure sharing** | Share individual credentials without exposing master password |
+| 🎨 **3 UI themes** | Midnight Dark, Cyberpunk (neon), Glassmorphism (frosted glass) |
+| ♻️ **WebAuthn / Passkeys** | FIDO2 passkey support for passwordless login |
+| 🌐 **Fully offline** | Works on local network with no internet dependency |
 
-- **AES-256-GCM** — the same cipher used by militaries and financial institutions worldwide
-- **Argon2id** key derivation — the gold standard for password hashing, resistant to GPU and ASIC attacks (3 iterations, 64 MB memory)
-- **12-byte random nonce** per encryption — guarantees uniqueness even if you save the same password twice
-- The server stores **only encrypted blobs** — it literally cannot read your passwords even if it wanted to
-- Your master password **never travels over the network** — ever
+---
+
+## 🔐 Security Highlights
+
+### End-to-End Encrypted Password Vault
 
 ```
-Your device → derives key from master password → encrypts → sends blob → server stores blob
-Server has: encrypted blob only. No key. No plaintext. Zero knowledge.
+Your Device
+  └─ Master password
+       └─ Argon2id (time=3, mem=64MB, parallel=1)
+            └─ 256-bit encryption key
+                 └─ AES-256-GCM (random 12-byte nonce per entry)
+                      └─ Encrypted blob ──────────────► Your Server
+                                                         (stores blob only)
+                                                         (no key, no plaintext)
 ```
 
----
+Your server is **cryptographically blind**. Even with full database access, an attacker sees only opaque ciphertext — useless without your master password.
 
-## 📱 Beautiful UI That Doesn't Feel Like a Chore
+### Zero-Knowledge by Design
 
-Security tools are usually ugly. Zero Password Manager isn't.
+- Master password is **never transmitted** over the network
+- Server stores: encrypted blob + Argon2id login hash + salt
+- Server **cannot** decrypt passwords, notes, or seed phrases
+- No telemetry, no analytics, no callbacks to external services
 
-### 3 Hand-Crafted Themes
+### Hardened Authentication
 
-| Theme | Vibe | Best For |
-|-------|------|----------|
-| **Midnight Dark** | Deep purple, clean and focused | OLED screens, daily use |
-| **Cyberpunk** | Neon cyan + magenta glow, gradients | Standing out, late-night vibes |
-| **Glassmorphism** | Frosted glass cards, soft blur | Modern aesthetic, readability |
+- **TOTP 2FA mandatory** — not optional, not a premium add-on
+- **Per-operation OTP gating** — require a fresh OTP code for vault reads/writes (configurable)
+- **Replay attack protection** — each time-code usable only once within its window
+- **JWT access tokens** (15-min TTL) + refresh tokens (7-day TTL) + revocation
+- **Rate limiting** via `slowapi` on all sensitive endpoints (5 attempts/min for OTP)
+- **HTTP security headers** — HSTS, CSP, X-Frame-Options, X-Content-Type-Options
 
-Switch themes instantly from Settings. Your choice is saved across sessions.
+### CVE-Hardened Codebase
 
----
-
-## 🛡️ Hardened 2FA — Not an Afterthought
-
-2FA is **mandatory from day one**, not an optional extra:
-
-- **TOTP** support (Google Authenticator, Aegis, Microsoft Authenticator, Bitwarden Authenticator — any standard app)
-- **QR code setup** during registration — scan and go
-- **Per-operation OTP gating** — you can require a fresh OTP code for every vault read, every write, or every audit log access (configurable)
-- **Replay attack protection** — each time-code can only be used once, even within its valid window
-- **Brute-force rate limiting** — 5 attempts per minute with mandatory delays on wrong codes
+Recent security commits include: JWT revocation, WebAuthn validation tightening, Pydantic schema security review, SSRF protection in favicon proxy, and full OWASP-aligned audit.
 
 ---
 
-## 📁 Password Folders — Keep Your Vault Organized
+## 📱 Download
 
-As your vault grows, finding the right password shouldn't feel like scrolling through a wall of entries.
+[![Download APK](https://img.shields.io/github/v/release/SoulNaturalist/zero_password_manager?label=Download%20APK&logo=android&color=4CAF50)](https://github.com/SoulNaturalist/zero_password_manager/releases/latest)
 
-**Folders let you group passwords the way you think:**
+1. Download the latest `zero-password-manager-vX.X.X.apk` from [Releases](https://github.com/SoulNaturalist/zero_password_manager/releases)
+2. Enable **Install from unknown sources** on your Android device
+3. Install the APK
+4. Set up your [backend server](#️-self-hosting-guide) first
 
-- 🏠 `Home` — WiFi, router, smart home devices
-- 💼 `Work` — company tools, VPN, internal systems
-- 🏦 `Finance` — banking, investment, crypto wallets
-- 🎮 `Gaming` — Steam, Epic, console accounts
-- ☁️ `Cloud` — AWS, GCP, hosting panels
-- ...or any custom structure that makes sense to you
-
-**How it works:**
-- Create folders with a **custom name**, pick from **12 colors** and **16 icons**
-- The **folder bar** on the main screen lets you filter your vault in one tap
-- Assign a folder when adding or editing any entry — always optional
-- Deleting a folder **never deletes passwords** — they just become unassigned
-- All folder data is user-scoped on the server — no cross-account leakage
+> iOS and Desktop builds require building from source — see instructions below.
 
 ---
 
-## 🔒 Biometric Unlock
+## ⚙️ Self-Hosting Guide
 
-Stop typing your master password every time:
+### Prerequisites
 
-- **Fingerprint** and **Face ID** unlock support
-- **PIN code** fallback for devices without biometrics
-- Local authentication only — biometric data never leaves your device
-- Auto-lock after configurable inactivity timeout
+- Python 3.10+ on your server
+- Flutter 3.x SDK (for building from source)
+- 5 minutes
 
----
-
-## 📜 Audit Log — Know Exactly What Happened
-
-Every sensitive action is logged:
-
-- Login attempts (with IP address)
-- Vault reads and writes
-- Password creation, updates, and deletions
-- 2FA enable/disable events
-- Full history with timestamps
-
-You can review everything that's ever happened in your vault. No black boxes.
-
----
-
-## 🔑 Password History
-
-Accidentally overwrote a password? Zero Password Manager keeps a **full change history** for every entry:
-- See previous versions of every credential
-- Timestamped CREATE / UPDATE / DELETE records
-- Masked sensitive data in history (login shown, password hidden)
-
----
-
-## 📥 CSV Import
-
-Already using Chrome, Firefox, Bitwarden, LastPass, or 1Password? Import your existing vault in seconds:
-- Standard CSV format support
-- Bulk import in a single upload
-- No manual re-entry needed
-
----
-
-## 🌐 Cross-Platform
-
-Built with Flutter — one codebase, runs everywhere:
-
-| Platform | Status |
-|----------|--------|
-| Android | ✅ |
-| iOS | ✅ |
-| Web | ✅ |
-| Windows | ✅ |
-| macOS | ✅ |
-| Linux | ✅ |
-
----
-
-# 🛡 Security Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│              Your Device                     │
-│  Master password → Argon2id → 256-bit key   │
-│  Plaintext → AES-256-GCM → Encrypted blob   │
-└────────────────────┬────────────────────────┘
-                     │ HTTPS (encrypted blob only)
-┌────────────────────▼────────────────────────┐
-│              Your Server                     │
-│  Stores: encrypted blob, login hash, salt   │
-│  Cannot read: passwords, notes, seed phrases│
-│  JWT auth + rate limiting + audit logging   │
-└─────────────────────────────────────────────┘
-```
-
-**Security stack:**
-- `Argon2id` — password hashing (time_cost=3, memory=64MB, parallelism=1)
-- `AES-256-GCM` — authenticated encryption with random nonces
-- `HS256 JWT` — short-lived access tokens (15 min) + refresh tokens (7 days)
-- `slowapi` — rate limiting on all sensitive endpoints
-- `HSTS + CSP + X-Frame-Options` — HTTP security headers
-
----
-
-# ⚙️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Mobile/Desktop/Web | Flutter & Dart |
-| Backend API | FastAPI (Python) |
-| Database | SQLite via SQLAlchemy |
-| Password hashing | Argon2id |
-| Vault encryption | AES-256-GCM |
-| Authentication | JWT (HS256) |
-| 2FA | TOTP via pyotp |
-| Rate limiting | slowapi |
-
----
-
-# 📦 Self-Hosting in 5 Minutes
-
-## 🐍 1. Start the Backend
+### Step 1 — Start the Backend Server
 
 ```bash
-cd server
+git clone https://github.com/SoulNaturalist/zero_password_manager.git
+cd zero_password_manager/server
+
 pip install -r requirements.txt
 cp env.example .env
-# Edit .env — set JWT_SECRET_KEY and ALLOWED_ORIGINS
+```
+
+Edit `.env` and set your values:
+
+```env
+JWT_SECRET_KEY=<run: python -c "import secrets; print(secrets.token_hex(32))">
+ALLOWED_ORIGINS=http://YOUR_SERVER_IP:3000
+```
+
+Start the server:
+
+```bash
 python -m uvicorn main:app --host 0.0.0.0 --port 3000
 ```
 
-Generate a secure JWT secret:
+The API is now running at `http://YOUR_SERVER_IP:3000`. The interactive API docs are at `/docs`.
+
+### Step 2 — Configure the Flutter App
+
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+cd ..                        # back to project root
+cp env.example env.prod
 ```
 
-## 📱 2. Run the Flutter App
+Edit `env.prod`:
+
+```env
+API_BASE_URL=http://YOUR_SERVER_IP:3000
+ENVIRONMENT=prod
+```
+
+### Step 3 — Run or Build the App
+
+**Run on a connected device / emulator:**
 
 ```bash
 flutter pub get
-# Edit env.dev — set API_BASE_URL to your server IP
-flutter run
+flutter run --dart-define=ENVIRONMENT=prod
 ```
 
-## 📦 3. Build for Mobile
+**Build Android APK:**
 
 ```bash
-# Android
-flutter build apk --release
+flutter build apk --release --dart-define=ENVIRONMENT=prod
+# Output: build/app/outputs/flutter-apk/app-release.apk
+```
 
-# iOS (requires macOS + Xcode)
+**Build for iOS** (requires macOS + Xcode):
+
+```bash
 flutter build ios --release
 ```
 
+**Build for Web:**
+
+```bash
+flutter build web --release
+```
+
 ---
 
-# 🆚 How It Compares
+## 🗂️ Project Structure
 
-| Feature | Zero Password Manager | LastPass | Bitwarden Cloud | 1Password |
-|---------|----------------------|----------|-----------------|-----------|
-| Your server only | ✅ | ❌ | ❌ | ❌ |
+```
+zero_password_manager/
+├── lib/                        # Flutter/Dart application
+│   ├── main.dart               # Entry point
+│   ├── config/
+│   │   └── app_config.dart     # API endpoint configuration
+│   ├── screens/                # All UI screens (15 screens)
+│   │   ├── login_screen.dart
+│   │   ├── passwords_screen.dart
+│   │   ├── add_password_screen.dart
+│   │   ├── folders_screen.dart
+│   │   ├── settings_screen.dart
+│   │   └── ...
+│   ├── services/               # Business logic
+│   │   ├── crypto_service.dart    # AES-256-GCM encryption
+│   │   ├── vault_service.dart     # Password vault operations
+│   │   ├── sharing_service.dart   # Secure sharing
+│   │   ├── rotation_service.dart  # Password rotation
+│   │   └── emergency_service.dart # Emergency access
+│   ├── widgets/                # Reusable UI components
+│   └── theme/
+│       └── colors.dart         # 3 theme definitions
+│
+├── server/                     # FastAPI Python backend
+│   ├── main.py                 # API server + all routes
+│   ├── auth/                   # JWT + WebAuthn authentication
+│   ├── passwords/              # CRUD for encrypted vault entries
+│   ├── folders/                # Folder management
+│   ├── audit/                  # Audit log module
+│   ├── models.py               # SQLAlchemy ORM models
+│   ├── schemas.py              # Pydantic validation schemas
+│   └── requirements.txt        # Python dependencies
+│
+├── assets/                     # Images and backgrounds
+├── env.example                 # Environment config template
+├── pubspec.yaml                # Flutter package manifest
+└── .github/workflows/          # CI/CD — automated APK release
+```
+
+---
+
+## ⚡ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Mobile / Desktop / Web | Flutter 3.x + Dart |
+| Backend API | FastAPI (Python) |
+| Database | SQLite via SQLAlchemy 2.0 |
+| Vault encryption | AES-256-GCM |
+| Key derivation | Argon2id |
+| Authentication | JWT HS256 (access + refresh tokens) |
+| Two-factor auth | TOTP via `pyotp` |
+| Passkeys | WebAuthn via `py_webauthn` |
+| Rate limiting | `slowapi` |
+| Local secure storage | `flutter_secure_storage` |
+| Local cache | Hive (encrypted) |
+| Biometrics | `flutter_locker` |
+
+---
+
+## 🆚 Comparison
+
+| Feature | **Zero PM** | LastPass | Bitwarden Cloud | 1Password |
+|---|:---:|:---:|:---:|:---:|
+| Data on your server only | ✅ | ❌ | ❌ | ❌ |
 | Zero cloud dependency | ✅ | ❌ | ❌ | ❌ |
 | Open source | ✅ | ❌ | ✅ | ❌ |
-| No subscription fee | ✅ | ❌ | partial | ❌ |
-| Works offline | ✅ | ❌ | ❌ | ❌ |
-| Audit log | ✅ | premium | premium | premium |
+| Free (no subscription) | ✅ | ❌ | partial | ❌ |
+| Works fully offline | ✅ | ❌ | ❌ | ❌ |
+| Audit log (free) | ✅ | premium | premium | premium |
 | Biometric unlock | ✅ | ✅ | ✅ | ✅ |
-| Password folders | ✅ | ✅ | ✅ | ✅ |
-| Cyberpunk theme | ✅ | ❌ | ❌ | ❌ |
+| Password history | ✅ | ✅ | ✅ | ✅ |
+| Emergency access | ✅ | ❌ | ✅ | ✅ |
+| Password rotation | ✅ | ❌ | ❌ | ❌ |
+| Cyberpunk / custom themes | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
-# 🤝 Contributing
+## 🗺️ Roadmap
 
-Contributions are welcome:
-- 🛠 Bug fixes
-- ✨ New features
-- 🎨 UI/UX improvements
-- 📝 Documentation
-
-Fork → branch → Pull Request. Every contribution matters.
+- [ ] **v0.3** — Docker Compose for one-command server deployment
+- [ ] **v0.3** — Browser extension (Chrome/Firefox)
+- [ ] **v0.4** — TOTP/2FA code storage (built-in authenticator)
+- [ ] **v0.4** — Secure notes with markdown support
+- [ ] **v0.5** — Argon2id parameter tuning UI
+- [ ] **v0.5** — Multi-vault support (personal + work)
+- [ ] **Future** — iOS App Store build pipeline
+- [ ] **Future** — Self-hosted update server
+- [ ] **Future** — Hardware key (YubiKey) support
 
 ---
 
-# 📜 License
+## 🤝 Contributing
 
-Licensed under the **PolyForm Noncommercial License 1.0.0**.
+Contributions are welcome! Here's how to get started:
 
-✅ **You can**: Use, study, modify, and distribute for personal, research, or hobby projects.
-❌ **You cannot**: Use for commercial purposes or revenue-generating activities.
+1. **Fork** the repository
+2. **Create** a feature branch: `git checkout -b feature/your-feature`
+3. **Commit** your changes with a clear message
+4. **Open a Pull Request** targeting `main`
+
+**Good first contributions:**
+- 🐛 Bug fixes
+- 📝 Documentation improvements
+- 🌍 Translations (i18n)
+- 🎨 UI/UX polish
+- 🧪 Test coverage
+
+Please check open [Issues](https://github.com/SoulNaturalist/zero_password_manager/issues) before starting large features.
+
+---
+
+## 📜 License
+
+Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+| | |
+|---|---|
+| ✅ **Allowed** | Personal use, research, hobby projects, self-hosting for non-commercial purposes |
+| ✅ **Allowed** | Study, modify, and distribute under the same terms |
+| ❌ **Prohibited** | Commercial use, revenue-generating deployments |
+
+---
+
+## 🌐 Translations
+
+- [Русская версия / Russian README](README_RU.md)
+- [Environment setup guide / Настройка окружения](README_ENV.md)
 
 ---
 
 <p align="center">
-  <strong>🔐 Zero Password Manager — Your data. Your server. Your rules.</strong>
+  <strong>🔐 Zero Password Manager</strong><br>
+  <em>Private · Encrypted · Self-hosted · Open Source</em><br><br>
+  If this project helps you, consider giving it a ⭐ on GitHub
 </p>
-
----
-
-[Русская версия README](README_RU.md)

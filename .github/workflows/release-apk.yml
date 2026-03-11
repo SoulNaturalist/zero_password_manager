@@ -1,0 +1,109 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.2.1)'
+        required: true
+        default: 'v0.2.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Release Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Initialize Android platform (if missing)
+        run: |
+          if [ ! -d "android" ]; then
+            echo "Android directory not found, initializing Flutter Android platform..."
+            flutter create --platforms=android .
+          else
+            echo "Android directory already exists."
+          fi
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Create production env file
+        run: |
+          cat > env.prod << 'EOF'
+          API_BASE_URL=http://YOUR_SERVER_IP:3000
+          ENVIRONMENT=prod
+          EOF
+          echo "env.prod created (users must set API_BASE_URL before building)"
+
+      - name: Build release APK
+        run: |
+          flutter build apk \
+            --release \
+            --dart-define=ENVIRONMENT=prod \
+            --build-name=${{ github.ref_name || inputs.version }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Rename APK
+        run: |
+          VERSION=${{ github.ref_name || inputs.version }}
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/zero-password-manager-${VERSION}.apk
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Zero Password Manager ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, 'beta') || contains(steps.tag.outputs.tag, 'alpha') }}
+          body: |
+            ## Zero Password Manager ${{ steps.tag.outputs.tag }}
+
+            ### 📦 Installation
+
+            1. Download `zero-password-manager-${{ steps.tag.outputs.tag }}.apk` below
+            2. Enable **Install from unknown sources** in Android Settings → Security
+            3. Open the APK file and install
+            4. Make sure your [backend server](../../tree/main/server) is running
+            5. On first launch, enter your server IP/domain in Settings
+
+            ### ⚠️ Configuration Required
+
+            This APK requires a self-hosted backend server. See the [README](../../blob/main/README.md) for full setup instructions.
+
+            > **Note:** Build number `${{ github.run_number }}` · Flutter stable channel
+
+            ### What's New
+            See [CHANGELOG](../../blob/main/CHANGELOG.md) for detailed changes.
+          files: |
+            build/app/outputs/flutter-apk/zero-password-manager-${{ steps.tag.outputs.tag }}.apk
