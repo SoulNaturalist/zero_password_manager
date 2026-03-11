@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../widgets/two_factor_setup_dialog.dart';
 import '../services/vault_service.dart';
 import '../services/crypto_service.dart';
+import '../utils/passkey_service.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -67,13 +68,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
           final salt = data['salt'];
           if (salt != null) {
             await VaultService().unlock(password, salt);
+            // Persist vault key so passkey / biometric login can restore it
+            final masterKey = VaultService().masterKey;
+            if (masterKey != null) {
+              final keyBytes = await masterKey.extractBytes();
+              await PasskeyService().saveVaultKey(base64.encode(keyBytes));
+            }
           }
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Регистрация и 2FA успешно настроены')),
           );
-          Navigator.pushReplacementNamed(context, '/passwords'); // Direct to vault if unlocked
+          Navigator.pushReplacementNamed(context, '/setup-pin'); // Set up PIN after registration
         }
       } else {
         setState(() {

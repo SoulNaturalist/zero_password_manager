@@ -33,10 +33,12 @@ class VaultService {
   /// Derives the master key and unlocks the vault.
   Future<void> unlock(String password, String salt) async {
     _masterKey = await _crypto.deriveMasterKey(password, salt);
-    
-    // If biometrics are enabled, store the master key securely
+
+    // If biometrics are enabled, persist the key so the vault can be
+    // unlocked without the master password on the next app launch.
     if (await BiometricService.isBiometricEnabled()) {
-      await BiometricService.storeBiometricSecret(base64.encode(_masterKey!));
+      final keyBytes = await _masterKey!.extractBytes();
+      await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
     }
   }
 

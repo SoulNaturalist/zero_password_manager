@@ -6,7 +6,8 @@ import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
 import '../utils/passkey_service.dart';
-import 'package:nk3_zero/utils/api_service.dart';
+import '../utils/api_service.dart';
+import '../services/vault_service.dart';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 
@@ -288,23 +289,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleBiometric(bool value) async {
     if (value) {
-      // Включаем биометрическую аутентификацию
+      // ── Enable biometrics ──────────────────────────────────────────────────
+      // To protect the vault we must store the master key encrypted by
+      // the biometric credential.  The vault must already be unlocked.
       try {
-        final bool authenticated = await BiometricService.authenticate(
-          reason: 'Подтвердите свою личность для включения биометрической аутентификации',
-        );
-        
-        if (authenticated) {
+        final masterKey = VaultService().masterKey;
+        if (masterKey == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                backgroundColor: Colors.orange,
+                content: Text(
+                  'Откройте хранилище (войдите с паролем) перед включением биометрии.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        final keyBytes = await masterKey.extractBytes();
+        final keyB64 = base64.encode(keyBytes);
+
+        // storeBiometricSecret shows the biometric prompt — returns true on success.
+        final stored = await BiometricService.storeBiometricSecret(keyB64);
+        if (stored) {
           await BiometricService.setBiometricEnabled(true);
-          setState(() {
-            _biometricEnabled = true;
-          });
-          
+          // Also persist in PasskeyService secure storage as fallback
+          await PasskeyService().saveVaultKey(keyB64);
+          setState(() => _biometricEnabled = true);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 backgroundColor: Colors.green,
-                content: Text('$_biometricType включен'),
+                content: Text('$_biometricType включён'),
               ),
             );
           }
@@ -313,7 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 backgroundColor: Colors.red,
-                content: Text('Аутентификация не пройдена'),
+                content: Text('Не удалось сохранить биометрические данные'),
               ),
             );
           }
@@ -321,9 +339,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               backgroundColor: Colors.red,
-              content: Text('Ошибка при включении биометрической аутентификации'),
+              content: Text('Ошибка: $e'),
             ),
           );
         }

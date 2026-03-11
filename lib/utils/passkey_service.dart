@@ -8,7 +8,6 @@ import 'api_service.dart';
 class PasskeyService {
   final _passkeyAuth = PasskeyAuthenticator();
   final _storage = const FlutterSecureStorage();
-  final ApiService _apiService = ApiService();
 
   static const String _vaultKeyKey = 'vault_key_encrypted';
 

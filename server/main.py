@@ -102,6 +102,30 @@ def validate_base64(data: str) -> bool:
         return False
 
 
+def _extract_webauthn_challenge(response: dict) -> Optional[str]:
+    """Extract the challenge string from a WebAuthn credential response.
+
+    The passkeys Flutter package does not add a top-level 'challenge' field;
+    the challenge lives inside the base64url-encoded clientDataJSON.
+    We decode it here so we can look it up in the challenges table.
+    """
+    try:
+        import json as _json
+        client_data_b64 = (
+            response.get("response", {}).get("clientDataJSON") or
+            response.get("clientDataJSON")
+        )
+        if not client_data_b64:
+            return None
+        # base64url → bytes (add padding if needed)
+        padded = client_data_b64 + "=" * (-len(client_data_b64) % 4)
+        client_data = _json.loads(base64.urlsafe_b64decode(padded))
+        return client_data.get("challenge")
+    except Exception as exc:
+        logger.warning(f"Could not extract challenge from clientDataJSON: {exc}")
+        return None
+
+
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
 # Apply column migrations for tables that already exist
@@ -731,7 +755,11 @@ async def webauthn_register_verify(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
-    challenge_data = crud.get_challenge(db, verify_data.registration_response.get("challenge"))
+    challenge_key = (
+        verify_data.registration_response.get("challenge")
+        or _extract_webauthn_challenge(verify_data.registration_response)
+    )
+    challenge_data = crud.get_challenge(db, challenge_key)
     if not challenge_data or challenge_data.type != "registration":
         raise HTTPException(status_code=400, detail="Invalid challenge")
     
@@ -803,7 +831,11 @@ async def webauthn_login_verify(
 ):
     common_error = HTTPException(status_code=400, detail="Authentication failed")
 
-    challenge_data = crud.get_challenge(db, verify_data.authentication_response.get("challenge"))
+    challenge_key = (
+        verify_data.authentication_response.get("challenge")
+        or _extract_webauthn_challenge(verify_data.authentication_response)
+    )
+    challenge_data = crud.get_challenge(db, challenge_key)
     if not challenge_data or challenge_data.type != "authentication":
         raise common_error
     

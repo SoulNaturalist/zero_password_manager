@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
+import 'dart:convert';
 import 'dart:typed_data';
 import '../theme/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
+import '../services/vault_service.dart';
+import 'package:cryptography/cryptography.dart';
 
 class PinScreen extends StatefulWidget {
   const PinScreen({super.key});
@@ -263,28 +266,40 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   Future<void> _authenticateWithBiometrics() async {
     try {
-      final authenticated = await BiometricService.authenticate(
+      // authenticate() returns the stored secret (base64 master key) on
+      // success, or null on failure/cancellation.
+      final vaultKeyB64 = await BiometricService.authenticate(
         reason: 'Подтвердите свою личность для доступа к паролям',
       );
 
-      if (authenticated) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/passwords',
-          (route) => false,
-        );
+      if (vaultKeyB64 != null) {
+        // Restore the in-memory master key so the vault is usable.
+        VaultService().setKey(SecretKey(base64.decode(vaultKeyB64)));
+
+        if (mounted) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            '/passwords',
+            (route) => false,
+          );
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               backgroundColor: Colors.orange,
-              content: Text('Биометрическая аутентификация не удалась. Используйте PIN-код.'),
+              content: Text(
+                  'Биометрическая аутентификация не удалась. Используйте PIN-код.'),
             ),
           );
         }
       }
     } catch (e) {
-      print('PIN Screen - Biometric authentication error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка биометрии: $e')),
+        );
+      }
     }
   }
 
