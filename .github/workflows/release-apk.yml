@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*.*.*'
+    paths-ignore:
+      - 'server/**'
+      - 'deployer/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - '.gitignore'
   workflow_dispatch:
     inputs:
       version:
