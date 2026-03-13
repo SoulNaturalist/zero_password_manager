@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nk3_zero/screens/login_screen.dart';
 import 'package:nk3_zero/screens/pin_screen.dart';
 import 'package:nk3_zero/screens/setup_pin_screen.dart';
+import '../config/app_config.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -24,15 +25,20 @@ class _SplashScreenState extends State<SplashScreen> {
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    final pinCode = prefs.getString('pin_code');
+    final pinHash = prefs.getString('pin_hash');
 
     if (!mounted) return;
+
+    if (AppConfig.needsSetup) {
+      Navigator.of(context).pushReplacementNamed('/setup-server');
+      return;
+    }
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (context) {
           if (token != null) {
-            if (pinCode != null) {
+            if (pinHash != null) {
               return const PinScreen();
             } else {
               return const SetupPinScreen();

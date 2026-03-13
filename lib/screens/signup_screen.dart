@@ -1,11 +1,16 @@
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_form_builder/flutter_form_builder.dart';
+import 'package:form_builder_validators/form_builder_validators.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../widgets/two_factor_setup_dialog.dart';
 import '../services/vault_service.dart';
-import '../services/crypto_service.dart';
+import '../models/server_error.dart';
+import '../utils/form_error_handler.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -14,211 +19,328 @@ class SignUpScreen extends StatefulWidget {
   State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _SignUpScreenState extends State<SignUpScreen> {
-  final TextEditingController _loginController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderStateMixin {
+  final _formKey = GlobalKey<FormBuilderState>();
   bool _isLoading = false;
-  String? _errorMessage;
+  late AnimationController _shakeController;
+  SecretKey? _masterKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  void _playErrorShake() {
+    _shakeController.forward(from: 0.0);
+  }
+
+  Future<void> _generatePassword() async {
+    try {
+      final response = await http.get(
+        Uri.parse(AppConfig.generatePasswordUrl),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final password = data['password'];
+        _formKey.currentState?.fields['password']?.didChange(password);
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Сгенерирован надежный пароль'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось сгенерировать пароль')),
+      );
+    }
+  }
 
   Future<void> _register() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final login = _loginController.text.trim();
-    final password = _passwordController.text.trim();
-
-    if (login.isEmpty || password.isEmpty) {
-      setState(() {
-        _errorMessage = 'Пожалуйста, введите логин и пароль';
-        _isLoading = false;
-      });
+    if (!(_formKey.currentState?.saveAndValidate() ?? false)) {
+      _playErrorShake();
       return;
     }
 
+    setState(() => _isLoading = true);
+
+    final values = _formKey.currentState!.value;
+    final login = values['login'];
+    final password = values['password'];
+
     try {
+      // 1. Client-side Zero-Knowledge: Generate salt and derive Master Key
+      final salt = VaultService.generateRandomSalt();
+      final masterKey = await VaultService.generateMasterKey(password, salt);
+      setState(() => _masterKey = masterKey);
+
+      // 2. Send registration request with the client-generated salt
       final response = await http.post(
         Uri.parse(AppConfig.registerUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'login': login,
           'password': password,
+          'salt': salt, // Send salt to server
         }),
       );
 
-      final data = jsonDecode(response.body);
-
       if (response.statusCode == 201) {
-        // Успех - показываем настройку 2FA
+        final data = jsonDecode(response.body);
         if (!mounted) return;
-        
-        final bool? confirmed = await showDialog<bool>(
+
+        final dynamic setupData = await showDialog<dynamic>(
           context: context,
           barrierDismissible: false,
           builder: (context) => TwoFactorSetupDialog(
             userId: data['id'],
             login: data['login'],
+            initialSecret: data['totp_secret'],
+            initialOtpUri: data['totp_uri'],
           ),
         );
 
-        if (confirmed == true) {
-          // Zero-Knowledge: Derive and set Master Key after successful setup
-          final salt = data['salt'];
-          if (salt != null) {
-            await VaultService().unlock(password, salt);
-          }
+        if (setupData != null && setupData is Map<String, dynamic>) {
+          // 3. Save Master Key to session (VaultService) after successful 2FA setup
+          await VaultService.saveMasterKey(masterKey);
+
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('token', setupData['access_token']);
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Регистрация и 2FA успешно настроены')),
+            const SnackBar(content: Text('Регистрация успешно завершена')),
           );
-          Navigator.pushReplacementNamed(context, '/passwords'); // Direct to vault if unlocked
+
+          // New users must always set up a PIN
+          Navigator.pushReplacementNamed(context, '/setup-pin');
         }
       } else {
-        setState(() {
-          _errorMessage = data['error'] ?? 'Ошибка регистрации';
-        });
+        final error = ServerError.fromJson(response.body, response.statusCode);
+        if (!mounted) return;
+        
+        FormErrorHandler.applyErrors(
+          formKey: _formKey,
+          error: error,
+          context: context,
+        );
+        _playErrorShake();
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Ошибка подключения к серверу';
-      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ошибка подключения к серверу')),
+      );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  @override
-  void dispose() {
-    _loginController.dispose();
-    _passwordController.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                margin: const EdgeInsets.only(bottom: 60),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppColors.button.withOpacity(0.8),
-                            AppColors.button.withOpacity(0.4),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.button.withOpacity(0.3),
-                            blurRadius: 15,
-                            spreadRadius: 2,
+      body: Container(
+        decoration: BoxDecoration(
+          color: AppColors.background,
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: AnimatedBuilder(
+              animation: _shakeController,
+              builder: (context, child) {
+                final double offset = 10 *
+                    (1 - _shakeController.value) *
+                    (0.5 - (0.5 - _shakeController.value).abs()).sign;
+                return Transform.translate(
+                  offset: Offset(offset, 0),
+                  child: child,
+                );
+              },
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: FormBuilder(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Logo & Header (Keep original UI)
+                      _buildHeader(),
+                      const SizedBox(height: 48),
+
+                      FormBuilderTextField(
+                        name: 'login',
+                        style: TextStyle(color: AppColors.text),
+                        decoration: InputDecoration(
+                          hintText: 'Логин',
+                          prefixIcon: Icon(Icons.person_outline, color: AppColors.button),
+                          filled: true,
+                          fillColor: AppColors.input,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
                           ),
-                        ],
+                          errorStyle: const TextStyle(color: Colors.redAccent),
+                        ),
+                        validator: FormBuilderValidators.compose([
+                          FormBuilderValidators.required(errorText: 'Введите логин'),
+                          FormBuilderValidators.minLength(3, errorText: 'Минимум 3 символа'),
+                        ]),
                       ),
-                      child: const Icon(
-                        Icons.person_add,
-                        size: 40,
-                        color: Colors.white,
+                      const SizedBox(height: 16),
+
+                      FormBuilderTextField(
+                        name: 'password',
+                        obscureText: true,
+                        style: TextStyle(color: AppColors.text),
+                        decoration: InputDecoration(
+                          hintText: 'Пароль',
+                          prefixIcon: Icon(Icons.lock_outline, color: AppColors.button),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.auto_fix_high),
+                            color: AppColors.button,
+                            tooltip: 'Сгенерировать надежный пароль',
+                            onPressed: _generatePassword,
+                          ),
+                          filled: true,
+                          fillColor: AppColors.input,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          errorMaxLines: 3,
+                          errorStyle: const TextStyle(color: Colors.redAccent),
+                        ),
+                        validator: FormBuilderValidators.compose([
+                          FormBuilderValidators.required(errorText: 'Введите пароль'),
+                          FormBuilderValidators.minLength(14, errorText: 'Минимум 14 символов'),
+                        ]),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    ShaderMask(
-                      shaderCallback: (bounds) => LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.button,
-                          AppColors.button.withOpacity(0.7),
-                        ],
-                      ).createShader(bounds),
-                      child: const Text(
-                        'ZERO',
-                        style: TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 4,
+                      const SizedBox(height: 32),
+
+                      _isLoading
+                          ? const CircularProgressIndicator()
+                          : Container(
+                              width: double.infinity,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                gradient: LinearGradient(
+                                  colors: [AppColors.button, AppColors.button.withOpacity(0.8)],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.button.withOpacity(0.3),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: ElevatedButton(
+                                onPressed: _register,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Зарегистрироваться',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                      const SizedBox(height: 24),
+                      TextButton(
+                        onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+                        child: Text(
+                          'Уже есть аккаунт? Войти',
+                          style: TextStyle(color: AppColors.button),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Создание аккаунта',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[400],
-                        fontWeight: FontWeight.w300,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              TextField(
-                controller: _loginController,
-                decoration: InputDecoration(
-                  hintText: 'Логин',
-                  filled: true,
-                  fillColor: AppColors.input,
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  hintText: 'Пароль',
-                  filled: true,
-                  fillColor: AppColors.input,
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
+                    ],
                   ),
                 ),
-              _isLoading
-                  ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      onPressed: _register,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.button,
-                        padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 16),
-                      ),
-                      child: const Text('Зарегистрироваться'),
-                    ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(context, '/login'),
-                child: const Text('Уже есть аккаунт? Войти'),
               ),
-            ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      children: [
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.button.withOpacity(0.8),
+                AppColors.button.withOpacity(0.4),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.button.withOpacity(0.3),
+                blurRadius: 15,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: const Icon(Icons.person_add, size: 40, color: Colors.white),
+        ),
+        const SizedBox(height: 16),
+        ShaderMask(
+          shaderCallback: (bounds) => LinearGradient(
+            colors: [AppColors.button, AppColors.button.withOpacity(0.7)],
+          ).createShader(bounds),
+          child: const Text(
+            'ZERO',
+            style: TextStyle(
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: 4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Создание защищенного аккаунта',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.grey[400],
+            fontWeight: FontWeight.w300,
+          ),
+        ),
+      ],
     );
   }
 }

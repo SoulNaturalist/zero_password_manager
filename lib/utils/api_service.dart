@@ -15,25 +15,66 @@ class ApiService {
     };
   }
 
-  static Future<http.Response> get(String url, {Map<String, String>? headers}) async {
+  static Future<http.Response> get(
+    String url, {
+    Map<String, String>? headers,
+  }) async {
     final combinedHeaders = await _getHeaders();
     if (headers != null) combinedHeaders.addAll(headers);
-    return _handleRequest(() => http.get(Uri.parse(url), headers: combinedHeaders), url, headers: combinedHeaders);
+    return _handleRequest(
+      () => http.get(Uri.parse(url), headers: combinedHeaders),
+      url,
+      headers: combinedHeaders,
+    );
   }
 
-  static Future<http.Response> post(String url, {Map<String, String>? headers, Object? body}) async {
+  static Future<http.Response> post(
+    String url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
     final combinedHeaders = await _getHeaders();
     if (headers != null) combinedHeaders.addAll(headers);
     final encodedBody = body is String ? body : json.encode(body);
-    return _handleRequest(() => http.post(Uri.parse(url), headers: combinedHeaders, body: encodedBody), url, headers: combinedHeaders, body: encodedBody);
+    return _handleRequest(
+      () => http.post(
+        Uri.parse(url),
+        headers: combinedHeaders,
+        body: encodedBody,
+      ),
+      url,
+      headers: combinedHeaders,
+      body: encodedBody,
+    );
   }
 
-  static Future<http.Response> put(String url, {Map<String, String>? headers, Object? body}) async {
-    return _handleRequest(() => http.put(Uri.parse(url), headers: headers, body: body), url, headers: headers, body: body);
+  static Future<http.Response> put(
+    String url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    final combinedHeaders = await _getHeaders();
+    if (headers != null) combinedHeaders.addAll(headers);
+    final encodedBody = body is String ? body : json.encode(body);
+    return _handleRequest(
+      () => http.put(Uri.parse(url), headers: combinedHeaders, body: encodedBody),
+      url,
+      headers: combinedHeaders,
+      body: encodedBody,
+    );
   }
 
-  static Future<http.Response> delete(String url, {Map<String, String>? headers}) async {
-    return _handleRequest(() => http.delete(Uri.parse(url), headers: headers), url, headers: headers);
+  static Future<http.Response> delete(
+    String url, {
+    Map<String, String>? headers,
+  }) async {
+    final combinedHeaders = await _getHeaders();
+    if (headers != null) combinedHeaders.addAll(headers);
+    return _handleRequest(
+      () => http.delete(Uri.parse(url), headers: combinedHeaders),
+      url,
+      headers: combinedHeaders,
+    );
   }
 
   static Future<http.Response> _handleRequest(
@@ -57,7 +98,7 @@ class ApiService {
           // Повторяем запрос с OTP в заголовке
           final newHeaders = Map<String, String>.from(headers ?? {});
           newHeaders['X-OTP'] = otpCode;
-          
+
           // Рекурсивный вызов с новыми заголовками
           if (response.request?.method == 'GET') {
             return http.get(Uri.parse(url), headers: newHeaders);
@@ -76,15 +117,18 @@ class ApiService {
   }
 
   static bool _isOtpRequired(http.Response response) {
-    // Backend returns 401/403 with specific detail or header
     if (response.statusCode == 401 || response.statusCode == 403) {
-      try {
-        final data = json.decode(response.body);
-        if (data['detail'] == 'OTP_REQUIRED' || data['error'] == 'OTP_REQUIRED') {
-          return true;
-        }
-      } catch (_) {}
-      
+      if (response.body.isNotEmpty) {
+        try {
+          final data = json.decode(response.body);
+          if (data is Map) {
+            return data['detail'] == 'OTP_REQUIRED' ||
+                   data['error'] == 'OTP_REQUIRED' ||
+                   data['detail']?.toString().contains('OTP') == true;
+          }
+        } catch (_) {}
+      }
+
       if (response.headers['x-2fa-required'] == 'true') {
         return true;
       }

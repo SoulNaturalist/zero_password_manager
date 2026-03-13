@@ -11,6 +11,7 @@ class LoginRequest(BaseModel):
 class UserCreate(BaseModel):
     login: str
     password: str
+    salt: Optional[str] = None
 
 
 class UserResponse(BaseModel):

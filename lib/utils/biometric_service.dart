@@ -34,16 +34,13 @@ class BiometricService {
     String reason = 'Подтвердите свою личность',
   }) async {
     try {
-      final secret = await FlutterLocker.retrieve(RetrieveSecretRequest(
-        key: _secretKey,
-        androidPrompt: AndroidPrompt(
-          title: reason,
-          cancelLabel: 'Отмена',
+      final secret = await FlutterLocker.retrieve(
+        RetrieveSecretRequest(
+          key: _secretKey,
+          androidPrompt: AndroidPrompt(title: reason, cancelLabel: 'Отмена'),
+          iOsPrompt: IOsPrompt(touchIdText: reason),
         ),
-        iOsPrompt: IOsPrompt(
-          touchIdText: reason,
-        ),
-      ));
+      );
       print('BiometricService: Authentication successful');
       return secret;
     } catch (e) {
@@ -55,14 +52,16 @@ class BiometricService {
   // Установка секрета с использованием биометрии
   static Future<bool> storeBiometricSecret(String value) async {
     try {
-      await FlutterLocker.save(SaveSecretRequest(
-        key: _secretKey,
-        secret: value,
-        androidPrompt: AndroidPrompt(
-          title: 'Сохранить с биометрией',
-          cancelLabel: 'Отмена',
+      await FlutterLocker.save(
+        SaveSecretRequest(
+          key: _secretKey,
+          secret: value,
+          androidPrompt: AndroidPrompt(
+            title: 'Сохранить с биометрией',
+            cancelLabel: 'Отмена',
+          ),
         ),
-      ));
+      );
       print('BiometricService: Secret stored');
       return true;
     } catch (e) {
@@ -92,7 +91,7 @@ class BiometricService {
     if (!stored) return false;
 
     final authenticated = await authenticate();
-    if (authenticated) {
+    if (authenticated != null) {
       await setBiometricEnabled(true);
       return true;
     }
@@ -114,10 +113,10 @@ class BiometricService {
         'canCheckBiometrics': canAuthenticate,
         'isDeviceSupported': canAuthenticate,
         'totalAvailableMethods': canAuthenticate ? 1 : 0,
-        'biometricDetails': canAuthenticate ? {
-          'fingerprint': 'Отпечаток пальца',
-          'face': 'Face ID',
-        } : {},
+        'biometricDetails':
+            canAuthenticate
+                ? {'fingerprint': 'Отпечаток пальца', 'face': 'Face ID'}
+                : {},
         'availableBiometrics': canAuthenticate ? ['fingerprint', 'face'] : [],
       };
     } catch (e) {

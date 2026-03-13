@@ -5,29 +5,38 @@ import '../utils/folder_service.dart';
 
 /// Palette of preset colours the user can pick for a folder.
 const List<String> _kFolderColors = [
-  '#5D52D2', '#E74C3C', '#E67E22', '#F1C40F',
-  '#2ECC71', '#1ABC9C', '#3498DB', '#9B59B6',
-  '#E91E63', '#00BCD4', '#FF5722', '#607D8B',
+  '#5D52D2',
+  '#E74C3C',
+  '#E67E22',
+  '#F1C40F',
+  '#2ECC71',
+  '#1ABC9C',
+  '#3498DB',
+  '#9B59B6',
+  '#E91E63',
+  '#00BCD4',
+  '#FF5722',
+  '#607D8B',
 ];
 
 /// Material icon names mapped to icon code-points used in the picker.
 const List<Map<String, dynamic>> _kFolderIcons = [
-  {'name': 'folder',        'icon': Icons.folder},
-  {'name': 'work',          'icon': Icons.work},
-  {'name': 'home',          'icon': Icons.home},
-  {'name': 'lock',          'icon': Icons.lock},
-  {'name': 'star',          'icon': Icons.star},
-  {'name': 'favorite',      'icon': Icons.favorite},
+  {'name': 'folder', 'icon': Icons.folder},
+  {'name': 'work', 'icon': Icons.work},
+  {'name': 'home', 'icon': Icons.home},
+  {'name': 'lock', 'icon': Icons.lock},
+  {'name': 'star', 'icon': Icons.star},
+  {'name': 'favorite', 'icon': Icons.favorite},
   {'name': 'shopping_cart', 'icon': Icons.shopping_cart},
-  {'name': 'school',        'icon': Icons.school},
-  {'name': 'code',          'icon': Icons.code},
-  {'name': 'gaming',        'icon': Icons.sports_esports},
-  {'name': 'bank',          'icon': Icons.account_balance},
-  {'name': 'email',         'icon': Icons.email},
-  {'name': 'cloud',         'icon': Icons.cloud},
-  {'name': 'social',        'icon': Icons.people},
-  {'name': 'crypto',        'icon': Icons.currency_bitcoin},
-  {'name': 'vpn_key',       'icon': Icons.vpn_key},
+  {'name': 'school', 'icon': Icons.school},
+  {'name': 'code', 'icon': Icons.code},
+  {'name': 'gaming', 'icon': Icons.sports_esports},
+  {'name': 'bank', 'icon': Icons.account_balance},
+  {'name': 'email', 'icon': Icons.email},
+  {'name': 'cloud', 'icon': Icons.cloud},
+  {'name': 'social', 'icon': Icons.people},
+  {'name': 'crypto', 'icon': Icons.currency_bitcoin},
+  {'name': 'vpn_key', 'icon': Icons.vpn_key},
 ];
 
 IconData _iconFromName(String name) {
@@ -76,185 +85,230 @@ class _FoldersScreenState extends State<FoldersScreen> {
   Future<void> _showFolderDialog({Map<String, dynamic>? existing}) async {
     final nameController = TextEditingController(text: existing?['name'] ?? '');
     String selectedColor = existing?['color'] ?? '#5D52D2';
-    String selectedIcon  = existing?['icon']  ?? 'folder';
+    String selectedIcon = existing?['icon'] ?? 'folder';
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          return AlertDialog(
-            backgroundColor: AppColors.surface,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: NeonText(
-              text: existing == null ? 'Новая папка' : 'Редактировать папку',
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Folder preview
-                  Center(
-                    child: Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: _colorFromHex(selectedColor).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: _colorFromHex(selectedColor),
-                          width: 2,
-                        ),
-                      ),
-                      child: Icon(
-                        _iconFromName(selectedIcon),
-                        color: _colorFromHex(selectedColor),
-                        size: 32,
-                      ),
-                    ),
+      builder:
+          (ctx) => StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              return AlertDialog(
+                backgroundColor: AppColors.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: NeonText(
+                  text:
+                      existing == null ? 'Новая папка' : 'Редактировать папку',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 20),
-                  // Name input
-                  ThemedTextField(
-                    controller: nameController,
-                    hintText: 'Название папки',
-                    prefixIcon: Icon(Icons.drive_file_rename_outline, color: AppColors.button),
-                  ),
-                  const SizedBox(height: 20),
-                  // Color picker
-                  Text(
-                    'Цвет',
-                    style: TextStyle(
-                      color: AppColors.text.withOpacity(0.7),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kFolderColors.map((hex) {
-                      final isSelected = hex == selectedColor;
-                      return GestureDetector(
-                        onTap: () => setDialogState(() => selectedColor = hex),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          width: 32,
-                          height: 32,
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Folder preview
+                      Center(
+                        child: Container(
+                          width: 64,
+                          height: 64,
                           decoration: BoxDecoration(
-                            color: _colorFromHex(hex),
-                            borderRadius: BorderRadius.circular(8),
-                            border: isSelected
-                                ? Border.all(color: Colors.white, width: 2.5)
-                                : null,
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: _colorFromHex(hex).withOpacity(0.6),
-                                      blurRadius: 8,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: isSelected
-                              ? const Icon(Icons.check, color: Colors.white, size: 18)
-                              : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 20),
-                  // Icon picker
-                  Text(
-                    'Иконка',
-                    style: TextStyle(
-                      color: AppColors.text.withOpacity(0.7),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kFolderIcons.map((entry) {
-                      final name = entry['name'] as String;
-                      final iconData = entry['icon'] as IconData;
-                      final isSelected = name == selectedIcon;
-                      return GestureDetector(
-                        onTap: () => setDialogState(() => selectedIcon = name),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? _colorFromHex(selectedColor).withOpacity(0.25)
-                                : AppColors.input,
-                            borderRadius: BorderRadius.circular(10),
-                            border: isSelected
-                                ? Border.all(
-                                    color: _colorFromHex(selectedColor),
-                                    width: 1.5,
-                                  )
-                                : null,
+                            color: _colorFromHex(
+                              selectedColor,
+                            ).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: _colorFromHex(selectedColor),
+                              width: 2,
+                            ),
                           ),
                           child: Icon(
-                            iconData,
-                            color: isSelected
-                                ? _colorFromHex(selectedColor)
-                                : AppColors.text.withOpacity(0.6),
-                            size: 20,
+                            _iconFromName(selectedIcon),
+                            color: _colorFromHex(selectedColor),
+                            size: 32,
                           ),
                         ),
-                      );
-                    }).toList(),
+                      ),
+                      const SizedBox(height: 20),
+                      // Name input
+                      ThemedTextField(
+                        controller: nameController,
+                        hintText: 'Название папки',
+                        prefixIcon: Icon(
+                          Icons.drive_file_rename_outline,
+                          color: AppColors.button,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // Color picker
+                      Text(
+                        'Цвет',
+                        style: TextStyle(
+                          color: AppColors.text.withOpacity(0.7),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            _kFolderColors.map((hex) {
+                              final isSelected = hex == selectedColor;
+                              return GestureDetector(
+                                onTap:
+                                    () => setDialogState(
+                                      () => selectedColor = hex,
+                                    ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: _colorFromHex(hex),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border:
+                                        isSelected
+                                            ? Border.all(
+                                              color: Colors.white,
+                                              width: 2.5,
+                                            )
+                                            : null,
+                                    boxShadow:
+                                        isSelected
+                                            ? [
+                                              BoxShadow(
+                                                color: _colorFromHex(
+                                                  hex,
+                                                ).withOpacity(0.6),
+                                                blurRadius: 8,
+                                              ),
+                                            ]
+                                            : null,
+                                  ),
+                                  child:
+                                      isSelected
+                                          ? const Icon(
+                                            Icons.check,
+                                            color: Colors.white,
+                                            size: 18,
+                                          )
+                                          : null,
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                      const SizedBox(height: 20),
+                      // Icon picker
+                      Text(
+                        'Иконка',
+                        style: TextStyle(
+                          color: AppColors.text.withOpacity(0.7),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            _kFolderIcons.map((entry) {
+                              final name = entry['name'] as String? ?? 'Без имени';
+                              final iconData = entry['icon'] as IconData;
+                              final isSelected = name == selectedIcon;
+                              return GestureDetector(
+                                onTap:
+                                    () => setDialogState(
+                                      () => selectedIcon = name,
+                                    ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        isSelected
+                                            ? _colorFromHex(
+                                              selectedColor,
+                                            ).withOpacity(0.25)
+                                            : AppColors.input,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border:
+                                        isSelected
+                                            ? Border.all(
+                                              color: _colorFromHex(
+                                                selectedColor,
+                                              ),
+                                              width: 1.5,
+                                            )
+                                            : null,
+                                  ),
+                                  child: Icon(
+                                    iconData,
+                                    color:
+                                        isSelected
+                                            ? _colorFromHex(selectedColor)
+                                            : AppColors.text.withOpacity(0.6),
+                                    size: 20,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(
+                      'Отмена',
+                      style: TextStyle(color: AppColors.text.withOpacity(0.6)),
+                    ),
+                  ),
+                  ThemedButton(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
+                    onPressed: () async {
+                      final name = nameController.text.trim();
+                      if (name.isEmpty) return;
+
+                      if (existing == null) {
+                        await FolderService.createFolder(
+                          name: name,
+                          color: selectedColor,
+                          icon: selectedIcon,
+                        );
+                      } else {
+                        await FolderService.updateFolder(
+                          existing['id'] as int,
+                          name: name,
+                          color: selectedColor,
+                          icon: selectedIcon,
+                        );
+                      }
+                      if (ctx.mounted) Navigator.pop(ctx, true);
+                    },
+                    child: Text(
+                      existing == null ? 'Создать' : 'Сохранить',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
-              ),
-              ThemedButton(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                onPressed: () async {
-                  final name = nameController.text.trim();
-                  if (name.isEmpty) return;
-
-                  if (existing == null) {
-                    await FolderService.createFolder(
-                      name: name,
-                      color: selectedColor,
-                      icon: selectedIcon,
-                    );
-                  } else {
-                    await FolderService.updateFolder(
-                      existing['id'] as int,
-                      name: name,
-                      color: selectedColor,
-                      icon: selectedIcon,
-                    );
-                  }
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                },
-                child: Text(
-                  existing == null ? 'Создать' : 'Сохранить',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+              );
+            },
+          ),
     );
 
     if (result == true) _loadFolders();
@@ -263,29 +317,42 @@ class _FoldersScreenState extends State<FoldersScreen> {
   Future<void> _deleteFolder(Map<String, dynamic> folder) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: NeonText(
-          text: 'Удалить папку?',
-          style: TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        content: Text(
-          'Папка «${folder['name']}» будет удалена.\n'
-          'Пароли из этой папки не удаляются.',
-          style: TextStyle(color: AppColors.text.withOpacity(0.8)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: NeonText(
+              text: 'Удалить папку?',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: Text(
+              'Папка «${folder['name']}» будет удалена.\n'
+              'Пароли из этой папки не удаляются.',
+              style: TextStyle(color: AppColors.text.withOpacity(0.8)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(
+                  'Отмена',
+                  style: TextStyle(color: AppColors.text.withOpacity(0.6)),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(
+                  'Удалить',
+                  style: TextStyle(color: AppColors.error),
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Удалить', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
     );
 
     if (confirmed == true) {
@@ -304,9 +371,10 @@ class _FoldersScreenState extends State<FoldersScreen> {
             text: 'Папки',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
-              ? AppColors.background
-              : Colors.black.withOpacity(0.3),
+          backgroundColor:
+              ThemeManager.currentTheme == AppTheme.dark
+                  ? AppColors.background
+                  : Colors.black.withOpacity(0.3),
           elevation: 0,
           actions: [
             IconButton(
@@ -317,20 +385,28 @@ class _FoldersScreenState extends State<FoldersScreen> {
           ],
         ),
         body: Container(
-          decoration: ThemeManager.currentTheme != AppTheme.dark
-              ? BoxDecoration(color: Colors.black.withOpacity(0.1))
-              : null,
-          child: _isLoading
-              ? Center(child: CircularProgressIndicator(color: AppColors.button))
-              : _buildBody(),
+          decoration:
+              ThemeManager.currentTheme != AppTheme.dark
+                  ? BoxDecoration(color: Colors.black.withOpacity(0.1))
+                  : null,
+          child:
+              _isLoading
+                  ? Center(
+                    child: CircularProgressIndicator(color: AppColors.button),
+                  )
+                  : _buildBody(),
         ),
-        floatingActionButton: !_isLoading
-            ? FloatingActionButton(
-                onPressed: () => _showFolderDialog(),
-                backgroundColor: AppColors.button,
-                child: const Icon(Icons.create_new_folder, color: Colors.white),
-              )
-            : null,
+        floatingActionButton:
+            !_isLoading
+                ? FloatingActionButton(
+                  onPressed: () => _showFolderDialog(),
+                  backgroundColor: AppColors.button,
+                  child: const Icon(
+                    Icons.create_new_folder,
+                    color: Colors.white,
+                  ),
+                )
+                : null,
       ),
     );
   }
@@ -367,11 +443,18 @@ class _FoldersScreenState extends State<FoldersScreen> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.create_new_folder, color: Colors.white, size: 20),
+                  const Icon(
+                    Icons.create_new_folder,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Создать папку',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -462,59 +545,69 @@ class _FoldersScreenState extends State<FoldersScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.text.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(2),
-              ),
+      builder:
+          (ctx) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.text.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                NeonText(
+                  text: folder['name'] as String? ?? '',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.text,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Icon(Icons.edit, color: AppColors.button),
+                  title: Text(
+                    'Редактировать',
+                    style: TextStyle(color: AppColors.text),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showFolderDialog(existing: folder);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: AppColors.error),
+                  title: Text(
+                    'Удалить папку',
+                    style: TextStyle(color: AppColors.error),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _deleteFolder(folder);
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            NeonText(
-              text: folder['name'] as String? ?? '',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppColors.text,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: Icon(Icons.edit, color: AppColors.button),
-              title: Text('Редактировать', style: TextStyle(color: AppColors.text)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showFolderDialog(existing: folder);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: AppColors.error),
-              title: Text('Удалить папку', style: TextStyle(color: AppColors.error)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteFolder(folder);
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
   String _passwordsWord(int count) {
     if (count % 100 >= 11 && count % 100 <= 14) return 'паролей';
     switch (count % 10) {
-      case 1: return 'пароль';
+      case 1:
+        return 'пароль';
       case 2:
       case 3:
-      case 4: return 'пароля';
-      default: return 'паролей';
+      case 4:
+        return 'пароля';
+      default:
+        return 'паролей';
     }
   }
 }

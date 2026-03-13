@@ -1,9 +1,10 @@
 import base64
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from fastapi import BackgroundTasks, HTTPException
 import pyotp
 from argon2.low_level import Type as Argon2Type, hash_secret_raw
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import User
+from ..audit.service import record as audit
 from .constants import (
     AES_NONCE_LEN,
     ARGON2_HASH_LEN,
@@ -21,6 +23,7 @@ from .constants import (
     ARGON2_TIME_COST,
 )
 from .exceptions import (
+    InvalidCredentials,
     InvalidOTPCode,
     InvalidRefreshToken,
     OTPInvalid,
@@ -33,7 +36,7 @@ from .schemas import UserCreate
 
 _pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-_PASSWORD_RE = re.compile(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).{12,}$')
+_PASSWORD_RE = re.compile(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{14,}$')
 
 
 # ── Password hashing ──────────────────────────────────────────────────────────
@@ -124,10 +127,9 @@ def decrypt(payload_b64: str, key: bytes) -> str:
 
 # ── TOTP / 2FA ────────────────────────────────────────────────────────────────
 
-def verify_hardened_otp(db: Session, user: User, otp: Optional[str]) -> None:
+def verify_hardened_otp(db: Session, user: User, otp: Optional[str], background_tasks: Optional[BackgroundTasks] = None) -> None:
     """
-    Verify a TOTP code for operations protected by hardened OTP.
-    Raises a domain exception (never HTTPException) on any failure.
+    Verify a TOTP code with drift compensation, replay protection, and account lockout.
     """
     if not user.totp_enabled:
         return
@@ -135,17 +137,43 @@ def verify_hardened_otp(db: Session, user: User, otp: Optional[str]) -> None:
     if not otp:
         raise OTPRequired()
 
+    # Check for account lockout
+    if user.lockout_until and user.lockout_until > datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=403,
+            detail="Account temporarily locked due to repeated failures"
+        )
+
     totp = pyotp.TOTP(user.totp_secret)
+    valid = False
+    new_timecode = 0
 
-    if not totp.verify(otp, valid_window=1):
+    # Drift compensation: Check ±1 step (30 seconds)
+    for offset in [-1, 0, 1]:
+        check_time = datetime.now(timezone.utc) + timedelta(seconds=offset * 30)
+        timecode = int(totp.timecode(check_time))
+        
+        if totp.verify(otp, for_time=check_time, valid_window=0):
+            # Replay Protection: timecode must be strictly greater than last used
+            if timecode > user.last_otp_ts:
+                new_timecode = timecode
+                valid = True
+                break
+    
+    if not valid:
+        # Increment failure counter
+        user.failed_otp_attempts = (user.failed_otp_attempts or 0) + 1
+        if user.failed_otp_attempts >= settings.MAX_FAILED_OTP_ATTEMPTS:
+            user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=settings.LOCKOUT_TIME_MINUTES)
+            audit(db, user.id, "account_locked", {"reason": "too_many_otp_failures"})
+        
+        db.commit()
         raise OTPInvalid()
-
-    # Replay protection: each 30-second window can only be used once
-    current_timecode = totp.timecode(datetime.utcnow())
-    if current_timecode <= user.last_otp_ts:
-        raise OTPReplay()
-
-    user.last_otp_ts = current_timecode
+    
+    # Success: Reset failure counters and update last used timecode
+    user.last_otp_ts = new_timecode
+    user.failed_otp_attempts = 0
+    user.lockout_until = None
     db.commit()
 
 
@@ -162,7 +190,7 @@ def create_user(db: Session, data: UserCreate) -> User:
     user = User(
         login=data.login,
         hashed_password=hash_password(data.password),
-        salt=generate_salt(),
+        salt=data.salt if data.salt else generate_salt(),
     )
     db.add(user)
     db.commit()

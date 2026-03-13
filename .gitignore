@@ -39,10 +39,8 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# Android folder
+/android/
 
 # iOS/macOS
 **/ios/**/*.mode1v3
@@ -115,3 +113,6 @@ com.android.builder.sdk.LicenceNotAccepted*
 
 # Metadata (optional - Flutter recommends keeping it)
 # .metadata
+
+# APK Deployer Microservice
+/deployer/

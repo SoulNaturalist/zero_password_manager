@@ -13,25 +13,14 @@ class PasswordHistoryService {
     required String siteUrl,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-
-      if (token == null) {
-        return false;
-      }
-
-      final response = await http.post(
-        Uri.parse(AppConfig.passwordHistoryUrl),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
+      final response = await ApiService.post(
+        AppConfig.passwordHistoryUrl,
+        body: {
           'password_id': passwordId,
           'action_type': actionType,
           'action_details': actionDetails,
           'site_url': siteUrl,
-        }),
+        },
       );
 
       return response.statusCode == 200 || response.statusCode == 201;
@@ -53,9 +42,7 @@ class PasswordHistoryService {
 
       final response = await ApiService.get(
         AppConfig.passwordHistoryUrl,
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
@@ -124,4 +111,4 @@ class PasswordHistoryService {
       return dateString;
     }
   }
-} 
+}

@@ -83,7 +83,6 @@ def delete_password_entry(
 @router.get("/generate")
 def generate_password(
     length: int = 24,
-    current_user: User = Depends(get_current_user),
 ):
     """Generate a cryptographically random password (length 8–128)."""
     from ..exceptions import AppException

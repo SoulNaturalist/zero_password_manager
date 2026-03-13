@@ -52,7 +52,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
       );
 
       setState(() {
-        _testResult = result ? 'Успешно!' : 'Не удалось';
+        _testResult = result != null ? 'Успешно!' : 'Не удалось';
         _isTesting = false;
       });
     } catch (e) {
@@ -70,7 +70,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
 
     try {
       final success = await BiometricService.forceEnableBiometrics();
-      
+
       if (success) {
         setState(() {
           _testResult = 'Биометрия принудительно включена!';
@@ -121,49 +121,47 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        title: Text(
-          'Тест биометрии',
-          style: TextStyle(color: AppColors.text),
-        ),
+        title: Text('Тест биометрии', style: TextStyle(color: AppColors.text)),
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: AppColors.text),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Статус системы
-                  _buildStatusCard(),
-                  const SizedBox(height: 16),
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Статус системы
+                    _buildStatusCard(),
+                    const SizedBox(height: 16),
 
-                  // Диагностическая информация
-                  _buildDiagnosticCard(),
-                  const SizedBox(height: 16),
+                    // Диагностическая информация
+                    _buildDiagnosticCard(),
+                    const SizedBox(height: 16),
 
-                  // Тестовые кнопки
-                  _buildTestButtons(),
-                  const SizedBox(height: 16),
+                    // Тестовые кнопки
+                    _buildTestButtons(),
+                    const SizedBox(height: 16),
 
-                  // Результат теста
-                  if (_testResult.isNotEmpty) _buildTestResult(),
-                ],
+                    // Результат теста
+                    if (_testResult.isNotEmpty) _buildTestResult(),
+                  ],
+                ),
               ),
-            ),
     );
   }
 
   Widget _buildStatusCard() {
     final systemStatus = _diagnosticInfo['systemStatus'] ?? 'Неизвестно';
     final canUse = _diagnosticInfo['canUseBiometrics'] ?? false;
-    
+
     Color statusColor;
     IconData statusIcon;
-    
+
     if (canUse) {
       statusColor = Colors.green;
       statusIcon = Icons.check_circle;
@@ -195,10 +193,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   const SizedBox(height: 4),
                   Text(
                     systemStatus,
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: statusColor, fontSize: 14),
                   ),
                 ],
               ),
@@ -226,14 +221,30 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            _buildDiagnosticRow('Может проверять биометрию', '${_diagnosticInfo['canCheckBiometrics'] ?? 'N/A'}'),
-            _buildDiagnosticRow('Устройство поддерживается', '${_diagnosticInfo['isDeviceSupported'] ?? 'N/A'}'),
-            _buildDiagnosticRow('Включена в настройках', '${_diagnosticInfo['isEnabled'] ?? 'N/A'}'),
-            _buildDiagnosticRow('Всего доступных методов', '${_diagnosticInfo['totalAvailableMethods'] ?? 'N/A'}'),
-            _buildDiagnosticRow('Можно использовать', '${_diagnosticInfo['canUseBiometrics'] ?? 'N/A'}'),
-            
-            if (_diagnosticInfo['biometricDetails'] != null && 
-                (_diagnosticInfo['biometricDetails'] as Map<String, String>).isNotEmpty) ...[
+            _buildDiagnosticRow(
+              'Может проверять биометрию',
+              '${_diagnosticInfo['canCheckBiometrics'] ?? 'N/A'}',
+            ),
+            _buildDiagnosticRow(
+              'Устройство поддерживается',
+              '${_diagnosticInfo['isDeviceSupported'] ?? 'N/A'}',
+            ),
+            _buildDiagnosticRow(
+              'Включена в настройках',
+              '${_diagnosticInfo['isEnabled'] ?? 'N/A'}',
+            ),
+            _buildDiagnosticRow(
+              'Всего доступных методов',
+              '${_diagnosticInfo['totalAvailableMethods'] ?? 'N/A'}',
+            ),
+            _buildDiagnosticRow(
+              'Можно использовать',
+              '${_diagnosticInfo['canUseBiometrics'] ?? 'N/A'}',
+            ),
+
+            if (_diagnosticInfo['biometricDetails'] != null &&
+                (_diagnosticInfo['biometricDetails'] as Map<String, String>)
+                    .isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(
                 'Доступные методы:',
@@ -244,18 +255,20 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              ...(_diagnosticInfo['biometricDetails'] as Map<String, String>).entries.map(
-                (entry) => Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 4),
-                  child: Text(
-                    '• ${entry.value}',
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
+              ...(_diagnosticInfo['biometricDetails'] as Map<String, String>)
+                  .entries
+                  .map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 4),
+                      child: Text(
+                        '• ${entry.value}',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
             ],
           ],
         ),
@@ -284,10 +297,17 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
             child: Text(
               value,
               style: TextStyle(
-                color: value == 'true' ? Colors.green : 
-                       value == 'false' ? Colors.red : Colors.grey,
+                color:
+                    value == 'true'
+                        ? Colors.green
+                        : value == 'false'
+                        ? Colors.red
+                        : Colors.grey,
                 fontSize: 12,
-                fontWeight: value == 'true' || value == 'false' ? FontWeight.bold : FontWeight.normal,
+                fontWeight:
+                    value == 'true' || value == 'false'
+                        ? FontWeight.bold
+                        : FontWeight.normal,
               ),
             ),
           ),
@@ -363,9 +383,11 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
   }
 
   Widget _buildTestResult() {
-    final isSuccess = _testResult.contains('Успешно') || _testResult.contains('включена');
-    final isError = _testResult.contains('Ошибка') || _testResult.contains('Не удалось');
-    
+    final isSuccess =
+        _testResult.contains('Успешно') || _testResult.contains('включена');
+    final isError =
+        _testResult.contains('Ошибка') || _testResult.contains('Не удалось');
+
     Color resultColor;
     if (isSuccess) {
       resultColor = Colors.green;
@@ -422,4 +444,4 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
       ),
     );
   }
-} 
+}

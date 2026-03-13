@@ -7,7 +7,7 @@ class CacheService {
   CacheService._internal();
 
   static const String _vaultBoxName = 'encrypted_vault';
-  
+
   /// Initialize Hive and open the necessary boxes.
   Future<void> init() async {
     await Hive.initFlutter();
@@ -15,7 +15,10 @@ class CacheService {
   }
 
   /// Stores an encrypted password blob in the local cache, keyed by its site_hash.
-  Future<void> cachePassword(String siteHash, Map<String, dynamic> encryptedData) async {
+  Future<void> cachePassword(
+    String siteHash,
+    Map<String, dynamic> encryptedData,
+  ) async {
     final box = Hive.box(_vaultBoxName);
     await box.put(siteHash, json.encode(encryptedData));
   }
@@ -34,14 +37,14 @@ class CacheService {
   Future<void> cacheAll(List<Map<String, dynamic>> passwords) async {
     final box = Hive.box(_vaultBoxName);
     final Map<String, String> entries = {};
-    
+
     for (var pwd in passwords) {
       final hash = pwd['site_hash'];
       if (hash != null) {
         entries[hash] = json.encode(pwd);
       }
     }
-    
+
     if (entries.isNotEmpty) {
       await box.putAll(entries);
     }

@@ -43,7 +43,12 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
             keyboardType: TextInputType.number,
             autofocus: true,
             maxLength: 6,
-            style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              letterSpacing: 8,
+              fontWeight: FontWeight.bold,
+            ),
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               counterText: '',
@@ -53,11 +58,15 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
               fillColor: Colors.black.withOpacity(0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppColors.button.withOpacity(0.3)),
+                borderSide: BorderSide(
+                  color: AppColors.button.withOpacity(0.3),
+                ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppColors.button.withOpacity(0.1)),
+                borderSide: BorderSide(
+                  color: AppColors.button.withOpacity(0.1),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -77,7 +86,9 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.button,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
           child: const Text('Подтвердить'),

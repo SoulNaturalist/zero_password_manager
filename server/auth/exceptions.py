@@ -10,8 +10,8 @@ class InvalidCredentials(AppException):
 class WeakPassword(AppException):
     status_code = 400
     detail = (
-        "Password must be at least 12 characters and include "
-        "uppercase, lowercase and a digit."
+        "Password must be at least 14 characters and include "
+        "uppercase, lowercase, a digit, and a special character."
     )
 
 

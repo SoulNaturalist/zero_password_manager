@@ -15,7 +15,7 @@ from webauthn.helpers.structs import (
     RegistrationCredential,
     AuthenticationCredential,
 )
-from webauthn.helpers import (
+from webauthn import (
     generate_registration_options,
     verify_registration_response,
     generate_authentication_options,
@@ -24,7 +24,7 @@ from webauthn.helpers import (
 )
 import random
 import asyncio
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -32,57 +32,19 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from . import auth, crud, models, schemas
+from . import auth_legacy as auth, crud, models, schemas
+from .exceptions import AppException, app_exception_handler
+from .auth.router import router as auth_router
+from .auth.service import verify_hardened_otp
 from .config import settings
 from .database import engine, get_db
-import urllib.parse
 import logging
+from .utils import get_favicon_url, get_client_ip, EncryptionService
+from .auth.dependencies import get_current_user, get_seed_access_user
 
 # Centralized Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zero_vault")
-
-# Favicon Engine
-def get_favicon_url(site_url: str) -> Optional[str]:
-    if not site_url:
-        return None
-    try:
-        # Clean URL and extract domain
-        if not site_url.startswith(('http://', 'https://')):
-            site_url = 'https://' + site_url
-        parsed = urllib.parse.urlparse(site_url)
-        domain = parsed.netloc.lower()
-        if not domain:
-            domain = parsed.path.split('/')[0].lower()
-        
-        # Remove 'www.'
-        if domain.startswith('www.'):
-            domain = domain[4:]
-            
-        if not domain or '.' not in domain:
-            return None
-
-        # SSRF Protection: Check that domain does not resolve to private/internal IP
-        import socket
-        import ipaddress
-        try:
-            # DNS lookup with basic SSRF protection
-            ip = socket.gethostbyname(domain)
-            ip_obj = ipaddress.ip_address(ip)
-            
-            # Explicitly block RFC1918 and other private ranges
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:
-                logger.warning(f"SSRF blocked: {domain} resolved to private/reserved IP {ip}")
-                return None
-        except Exception as e:
-            logger.error(f"DNS lookup failed for {domain}: {e}")
-            return None
-            
-        # Priority 1: Clearbit (High Quality)
-        # Priority 2: Google (Fallback)
-        return f"https://logo.clearbit.com/{domain}?size=128"
-    except:
-        return None
 
 def validate_base64(data: str) -> bool:
     if not data:
@@ -113,14 +75,20 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Zero Vault API (Fortress + 2FA)")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(AppException, app_exception_handler)
 
 # CORS and Security Headers
+cors_regex = r"https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|.*)(:\d+)?"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=cors_regex,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)  # Compatibility with legacy/root routes
+app.include_router(auth_router, prefix="/api/v1")
 
 
 @app.middleware("http")
@@ -137,247 +105,53 @@ async def add_security_headers(request: Request, call_next):
 # Constants
 MAX_PAYLOAD_SIZE = 2 * 1024 * 1024  # 2MB
 
-# 2FA Helper with Timing-Safe Verification and Account Lockout
-def verify_hardened_otp(db: Session, user: models.User, otp: Optional[str], background_tasks: BackgroundTasks = None):
-    if not user.totp_enabled:
+from fastapi import WebSocket, WebSocketDisconnect
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[int, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: int):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+
+    def disconnect(self, user_id: int):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+
+    async def send_personal_message(self, message: dict, user_id: int):
+        websocket = self.active_connections.get(user_id)
+        if websocket:
+            await websocket.send_json(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/device-events")
+async def websocket_device_events(websocket: WebSocket, token: str):
+    try:
+        payload = auth.jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except Exception:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Uniform error for missing vs invalid credentials/OTP to prevent enumeration
-    common_error = HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Invalid credentials or OTP"
-    )
-
-    if not otp:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="OTP_REQUIRED",
-            headers={"X-2FA-Required": "true"}
-        )
-
-    # Re-fetch user with row-level lock
-    db_user = db.query(models.User).filter(models.User.id == user.id).with_for_update().first()
-    if not db_user:
-        raise common_error
-
-    # Check for account lockout
-    if db_user.lockout_until and db_user.lockout_until > datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account temporarily locked due to repeated failures"
-        )
-
-    totp = pyotp.TOTP(db_user.totp_secret)
-    valid = False
-    new_timecode = 0
-
-    # Drift compensation: Check ±1 step (30 seconds)
-    for offset in [-1, 0, 1]:
-        check_time = datetime.now(timezone.utc) + timedelta(seconds=offset * 30)
-        timecode = int(totp.timecode(check_time))
-        
-        # Timing-safe comparison using hmac.compare_digest
-        # We verify if the provided OTP matches the TOTP for this time window
-        if totp.verify(otp, for_time=check_time, valid_window=0):
-            # Replay Protection: timecode must be strictly greater than last used
-            if timecode > db_user.last_otp_ts:
-                new_timecode = timecode
-                valid = True
-                break
-    
-    if not valid:
-        # Increment failure counter
-        db_user.failed_otp_attempts = (db_user.failed_otp_attempts or 0) + 1
-        if db_user.failed_otp_attempts >= settings.MAX_FAILED_OTP_ATTEMPTS:
-            db_user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=settings.LOCKOUT_TIME_MINUTES)
-            crud.audit_event(db, db_user.id, "account_locked", {"reason": "too_many_otp_failures"}, background_tasks=background_tasks)
-        
-        db.commit()
-        raise common_error
-    
-    # Success: Reset failure counters and update last used timecode
-    db_user.last_otp_ts = new_timecode
-    db_user.failed_otp_attempts = 0
-    db_user.lockout_until = None
-    db.commit()
-
-
-@app.post("/register",
-          response_model=schemas.UserResponse,
-          status_code=status.HTTP_201_CREATED)
-@limiter.limit("3/minute")
-def register(request: Request,
-             user: schemas.UserCreate,
-             background_tasks: BackgroundTasks,
-             db: Session = Depends(get_db)):
-    # Timing Attack Mitigation
-    await asyncio.sleep(random.uniform(0.1, 0.3))
-    
-    # User Enumeration & Policy Protection: Generic responses
-    db_user = crud.get_user_by_login(db, login=user.login)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Ошибка регистрации")
-    
-    # Create user (crud.create_user already validates password but we standardize error here)
+    await manager.connect(websocket, user_id)
     try:
-        new_user = crud.create_user(db=db, user=user, background_tasks=background_tasks)
-    except HTTPException as e:
-        if e.status_code == 400:
-             raise HTTPException(status_code=400, detail="Ошибка регистрации")
-        raise e
-    
-    # Generate 2FA Secret for binding during registration
-    secret = pyotp.random_base32()
-    crud.update_user_totp(db, new_user.id, secret=secret)
-    
-    crud.audit_event(db, new_user.id, "user_registered", ip=request.client.host, background_tasks=background_tasks)
-
-    # Return user data + 2FA setup info
-    totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=new_user.login, issuer_name="ZeroVault")
-    
-    # We return the UserResponse which we need to extend with setup info
-    return {
-        "id": new_user.id,
-        "login": new_user.login,
-        "salt": new_user.salt,
-        "totp_secret": secret,
-        "totp_uri": uri
-    }
-
-
-@app.post("/login", response_model=schemas.Token)
-@limiter.limit("5/minute")
-async def login(request: Request,
-          background_tasks: BackgroundTasks,
-          form_data: OAuth2PasswordRequestForm = Depends(),
-          db: Session = Depends(get_db)):
-    # Timing Attack Mitigation
-    await asyncio.sleep(random.uniform(0.1, 0.3))
-    
-    # Uniform error for all login/2FA failures
-    common_error = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid credentials or OTP",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    user = db.query(models.User).filter(models.User.login == form_data.username).with_for_update().first()
-    
-    if not user:
-        # Constant time-ish delay to prevent timing based enumeration
-        time.sleep(1)
-        crud.audit_event(db, None, "login_failed", {"login": form_data.username, "reason": "user_not_found"}, ip=request.client.host, background_tasks=background_tasks)
-        raise common_error
-
-    # Check for account lockout
-    if user.lockout_until and user.lockout_until > datetime.now(timezone.utc):
-        crud.audit_event(db, user.id, "login_failed", {"reason": "account_locked"}, ip=request.client.host, background_tasks=background_tasks)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account temporarily locked due to repeated failures"
-        )
-
-    # Track attempt
-    user.last_login_attempt = datetime.now(timezone.utc)
-
-    # Password check
-    if not auth.verify_password(form_data.password, user.hashed_password):
-        # Increment failure counter
-        user.failed_otp_attempts = (user.failed_otp_attempts or 0) + 1
-        if user.failed_otp_attempts >= settings.MAX_FAILED_OTP_ATTEMPTS:
-            user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=settings.LOCKOUT_TIME_MINUTES)
-            crud.audit_event(db, user.id, "account_locked", {"reason": "too_many_login_failures"}, background_tasks=background_tasks)
-        
-        db.commit()
-        time.sleep(1)
-        crud.audit_event(db, user.id, "login_failed", {"reason": "invalid_password"}, ip=request.client.host, background_tasks=background_tasks)
-        raise common_error
-
-    # Check if login requires OTP in config
-    if "login" in settings.PERMISSIONS_OTP_LIST:
-        otp = request.headers.get("X-OTP")
-        if user.totp_enabled and not otp:
-            crud.audit_event(db, user.id, "login_2fa_required", ip=request.client.host, background_tasks=background_tasks)
-            return schemas.Token(two_fa_required=True, salt=user.salt)
-
-        if user.totp_enabled:
-            # Re-verify logic inside already handles lockout/failures for OTP
-            verify_hardened_otp(db, user, otp, background_tasks=background_tasks)
-
-    access_token = auth.create_access_token(data={"sub": str(user.id)})
-    refresh_token = auth.create_refresh_token(user_id=user.id)
-
-    # Success: Reset failure counters
-    user.failed_otp_attempts = 0
-    user.lockout_until = None
-    db.commit()
-
-    crud.audit_event(db, user.id, "login", ip=request.client.host, background_tasks=background_tasks)
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user_id": user.id,
-        "login": user.login,
-        "salt": user.salt,
-        "two_fa_required": False
-    }
-
-
-@app.post("/2fa/setup", response_model=schemas.TOTPSetupResponse)
-def setup_2fa(current_user: models.User = Depends(auth.get_current_user),
-              db: Session = Depends(get_db)):
-    secret = pyotp.random_base32()
-    crud.update_user_totp(db, current_user.id, secret=secret)
-
-    totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=current_user.login, issuer_name="ZeroVault")
-    return {"secret": secret, "otp_uri": uri}
-
-@app.post("/2fa/confirm")
-@limiter.limit("5/minute")
-def confirm_2fa(request: Request, 
-                request_data: schemas.TOTPConfirmRequest,
-                background_tasks: BackgroundTasks,
-                db: Session = Depends(get_db)):
-    # If we have user_id in request, use it (for registration flow)
-    # Otherwise try to get from current_user (for logged in users)
-    user_id = request_data.user_id
-    user = None
-    if user_id:
-        user = db.query(models.User).get(user_id)
-    
-    if not user:
-        # Fallback to current authenticated user
-        try:
-            user = auth.get_current_user(request.headers.get("Authorization", "").replace("Bearer ", ""), db)
-        except:
-             raise HTTPException(status_code=401, detail="Authentication required")
-
-    if not user or not user.totp_secret:
-        raise HTTPException(status_code=400, detail="2FA not set up")
-
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(request_data.code):
-        crud.audit_event(db, user.id, "2fa_confirm_failed", {"reason": "invalid_otp"}, ip=request.client.host, background_tasks=background_tasks)
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Set initial timecode to prevent immediate reuse of setup code
-    user.last_otp_ts = int(totp.timecode(datetime.now(timezone.utc)))
-    user.totp_enabled = True
-    db.commit()
-
-    crud.audit_event(db, user.id, "2fa_enabled", ip=request.client.host, background_tasks=background_tasks)
-
-    return {"status": "2fa enabled"}
-
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
 
 @app.get("/profile", response_model=schemas.UserResponse)
 def get_profile(current_user: models.User = Depends(auth.get_current_user)):
     """Get current user profile info."""
-    return current_user
+    # We need to explicitly set the password_count since it's not in the DB model directly
+    # as a simple column but we want it in the response.
+    # FastAPI/Pydantic will pick it up from current_user if we match names, 
+    # but the model doesn't have it. We can return a dict or a new object.
+    response_data = schemas.UserResponse.model_validate(current_user)
+    response_data.password_count = len(current_user.passwords)
+    return response_data
 
 
 @app.post("/profile/update", response_model=schemas.UserResponse)
@@ -409,6 +183,57 @@ def update_profile(request: Request,
     db.refresh(current_user)
     crud.audit_event(db, current_user.id, "profile_updated", background_tasks=background_tasks)
     return current_user
+
+
+@app.get("/profile/seed-phrase")
+@limiter.limit("5/hour")
+def get_seed_phrase(
+    request: Request,
+    current_user: models.User = Depends(get_seed_access_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve the encrypted seed phrase. Requires specialized short-lived token."""
+    if not current_user.seed_phrase_encrypted:
+        raise HTTPException(status_code=404, detail="Seed phrase not set")
+
+    # Access Log
+    crud.audit_event(db, current_user.id, "seed_phrase_viewed")
+    
+    # Decrypt with Server Key and return
+    decrypted = EncryptionService.decrypt(current_user.seed_phrase_encrypted)
+    
+    # Update last viewed
+    current_user.seed_phrase_last_viewed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    return {"seed_phrase": decrypted}
+
+
+@app.post("/profile/seed-phrase")
+@limiter.limit("5/hour")
+def set_seed_phrase(
+    request: Request,
+    body: dict,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set or rotate the seed phrase. Rotation requires multi-factor proof."""
+    new_phrase = body.get("seed_phrase")
+    if not new_phrase:
+        raise HTTPException(status_code=400, detail="Seed phrase required")
+
+    # If it's a rotation, we should ideally verify old phrase or password
+    # For now, let's enforce TOTP at least
+    if current_user.totp_enabled:
+        otp = request.headers.get("X-OTP")
+        verify_hardened_otp(db, current_user, otp)
+
+    # Encrypt with Server Key
+    current_user.seed_phrase_encrypted = EncryptionService.encrypt(new_phrase)
+    db.commit()
+    
+    crud.audit_event(db, current_user.id, "seed_phrase_updated")
+    return {"success": True}
 
 
 @app.post("/refresh")
@@ -450,8 +275,9 @@ def read_passwords(request: Request,
     # Favicon URLs are now handled client-side in Zero-Knowledge mode 
     # or via site_url if it still exists (legacy support)
     for p in db_passwords:
-        if p.site_url:
-            p.favicon_url = get_favicon_url(p.site_url)
+        site_url = getattr(p, 'site_url', None)
+        if site_url:
+            p.favicon_url = get_favicon_url(site_url)
         
     crud.audit_event(db, current_user.id, "passwords_read", ip=request.client.host, background_tasks=background_tasks)
     return db_passwords
@@ -486,9 +312,30 @@ def create_password(request: Request,
         raise HTTPException(status_code=400, detail="Invalid notes payload (not base64)")
 
     new_pwd = crud.create_password(db, password=password, user_id=current_user.id)
-    if new_pwd.site_url:
-        new_pwd.favicon_url = get_favicon_url(new_pwd.site_url)
+    if password.site_url:
+        new_pwd.site_url = password.site_url # For the response schema
+        new_pwd.favicon_url = get_favicon_url(password.site_url)
     return new_pwd
+
+
+@app.post("/import-passwords",
+          response_model=List[schemas.PasswordResponse],
+          status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+def import_passwords(request: Request,
+                    data: schemas.PasswordImport,
+                    background_tasks: BackgroundTasks,
+                    current_user: models.User = Depends(auth.get_current_user),
+                    db: Session = Depends(get_db)):
+    # OTP-Gated if configured
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"), background_tasks=background_tasks)
+
+    # Sanity check: limit batch size to 500 items to avoid timeouts/OOM
+    if len(data.items) > 500:
+        raise HTTPException(status_code=400, detail="Batch size too large (max 500)")
+
+    return crud.import_passwords(db, data=data, user_id=current_user.id, background_tasks=background_tasks)
 
 
 @app.put("/passwords/{password_id}",
@@ -510,9 +357,10 @@ def update_password(request: Request,
     if password.notes_encrypted and not validate_base64(password.notes_encrypted):
         raise HTTPException(status_code=400, detail="Invalid notes payload (not base64)")
 
-    updated = crud.update_password(db, password_id=password_id, password=password, user_id=current_user.id)
-    if updated.site_url:
-        updated.favicon_url = get_favicon_url(updated.site_url)
+    updated = crud.update_password(db, password_id=password_id, password=password, user_id=current_user.id, background_tasks=background_tasks)
+    if password.site_url:
+        updated.site_url = password.site_url # For the response schema
+        updated.favicon_url = get_favicon_url(password.site_url)
     return updated
 
 
@@ -588,8 +436,9 @@ def read_passwords_by_folder(request: Request,
 
     passwords = crud.get_passwords_by_folder(db, folder_id=folder_id, user_id=current_user.id)
     for p in passwords:
-        if p.site_url:
-            p.favicon_url = get_favicon_url(p.site_url)
+        site_url = getattr(p, 'site_url', None)
+        if site_url:
+            p.favicon_url = get_favicon_url(site_url)
     return passwords
 
 
@@ -604,7 +453,7 @@ def read_audit_logs(request: Request,
     return crud.get_logs(db, user_id=current_user.id)
 
 
-@app.get("/passwords/history", response_model=List[schemas.HistoryResponse])
+@app.get("/password-history", response_model=List[schemas.HistoryResponse])
 def read_password_history(request: Request,
                           background_tasks: BackgroundTasks,
                           current_user: models.User = Depends(auth.get_current_user),
@@ -623,12 +472,90 @@ def read_password_history(request: Request,
     return history
 
 
+@app.post("/password-history", response_model=schemas.HistoryResponse)
+def log_password_history(request: Request,
+                        history: schemas.HistoryCreate,
+                        background_tasks: BackgroundTasks,
+                        current_user: models.User = Depends(auth.get_current_user),
+                        db: Session = Depends(get_db)):
+    # OTP-Gated if configured
+    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"), background_tasks=background_tasks)
+        
+    return crud.create_history(db, history, user_id=current_user.id)
+
+
 @app.get("/api/generate-password")
 @limiter.limit("10/minute")
 def generate_password(request: Request, length: int = 24):
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()_+-="
-    password = ''.join(secrets.choice(alphabet) for i in range(length))
-    return {"password": password}
+    if length < 14:
+        length = 24
+    
+    # Categories of characters to ensure variety
+    upper = string.ascii_uppercase
+    lower = string.ascii_lowercase
+    digits = string.digits
+    symbols = "!@#$%^&*()_+-="
+    
+    # Start with one of each to guarantee strength check passes
+    password = [
+        secrets.choice(upper),
+        secrets.choice(lower),
+        secrets.choice(digits),
+        secrets.choice(symbols)
+    ]
+    
+    # Fill the rest randomly
+    all_chars = upper + lower + digits + symbols
+    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+    
+    # Shuffle to avoid predictable pattern
+    random.shuffle(password)
+    
+    return {"password": "".join(password)}
+
+
+@app.post("/admin/request-backend-change")
+def request_backend_change(
+    request: Request,
+    new_url: str,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    challenge_id = secrets.token_hex(16)
+    crud.create_challenge(db, current_user.id, challenge_id, f"backend_change:{new_url}")
+
+    asyncio.create_task(manager.send_personal_message({
+        "type": "backend_change_request",
+        "new_url": new_url,
+        "challenge_id": challenge_id
+    }, current_user.id))
+    
+    crud.audit_event(db, current_user.id, "backend_change_requested", {"new_url": new_url}, background_tasks=background_tasks)
+    return {"status": "request_sent"}
+
+
+@app.post("/device/confirm-backend-change")
+def confirm_backend_change(
+    request: Request,
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    challenge_id = payload.get("challenge_id")
+    totp_code = payload.get("totp")
+    
+    challenge_data = crud.get_challenge(db, challenge_id)
+    if not challenge_data or not challenge_data.type.startswith("backend_change:"):
+        raise HTTPException(status_code=400, detail="Invalid challenge")
+        
+    verify_hardened_otp(db, current_user, totp_code, background_tasks=background_tasks)
+    
+    crud.delete_challenge(db, challenge_id)
+    crud.audit_event(db, current_user.id, "backend_changed_confirmed", background_tasks=background_tasks)
+    return {"status": "backend_changed"}
 
 
 
@@ -642,10 +569,13 @@ async def webauthn_register_options(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    host = request.headers.get("host", "localhost")
+    rp_id = host.split(":")[0]
+
     options = generate_registration_options(
-        rp_id=settings.RP_ID,
+        rp_id=rp_id,
         rp_name=settings.RP_NAME,
-        user_id=str(current_user.id),
+        user_id=bytes(str(current_user.id), "utf-8"),
         user_name=current_user.login,
         authenticator_selection=AuthenticatorSelectionCriteria(
             resident_key=ResidentKeyRequirement.REQUIRED,
@@ -653,8 +583,9 @@ async def webauthn_register_options(
         ),
     )
     
-    # Store challenge
-    challenge_str = options.challenge.decode("utf-8") if isinstance(options.challenge, bytes) else options.challenge
+    # Store challenge (encode to base64url for DB and client consistency)
+    import base64
+    challenge_str = base64.urlsafe_b64encode(options.challenge).decode("utf-8").rstrip("=")
     crud.create_challenge(db, current_user.id, challenge_str, "registration")
     
     from fastapi.responses import JSONResponse
@@ -669,6 +600,10 @@ async def webauthn_register_verify(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    host = request.headers.get("host", "localhost")
+    rp_id = host.split(":")[0]
+    expected_origin = request.headers.get("origin", settings.EXPECTED_ORIGIN)
+
     challenge_data = crud.get_challenge(db, verify_data.registration_response.get("challenge"))
     if not challenge_data or challenge_data.type != "registration":
         raise HTTPException(status_code=400, detail="Invalid challenge")
@@ -678,11 +613,12 @@ async def webauthn_register_verify(
         raise HTTPException(status_code=400, detail="Challenge expired")
     
     try:
+        import base64
         verification = verify_registration_response(
             credential=verify_data.registration_response,
-            expected_challenge=challenge_data.challenge.encode("utf-8"),
-            expected_origin=settings.EXPECTED_ORIGIN,
-            expected_rp_id=settings.RP_ID,
+            expected_challenge=base64.urlsafe_b64decode(challenge_data.challenge + "=="),
+            expected_origin=expected_origin,
+            expected_rp_id=rp_id,
             require_user_verification=True,
         )
         
@@ -718,13 +654,17 @@ async def webauthn_login_options(
     request: Request,
     db: Session = Depends(get_db)
 ):
+    host = request.headers.get("host", "localhost")
+    rp_id = host.split(":")[0]
+
     options = generate_authentication_options(
-        rp_id=settings.RP_ID,
+        rp_id=rp_id,
         user_verification=UserVerificationRequirement.REQUIRED,
     )
     
     # Store challenge
-    challenge_str = options.challenge.decode("utf-8") if isinstance(options.challenge, bytes) else options.challenge
+    import base64
+    challenge_str = base64.urlsafe_b64encode(options.challenge).decode("utf-8").rstrip("=")
     crud.create_challenge(db, None, challenge_str, "authentication")
     
     from fastapi.responses import JSONResponse
@@ -738,6 +678,10 @@ async def webauthn_login_verify(
     verify_data: schemas.WebAuthnLoginVerify,
     db: Session = Depends(get_db)
 ):
+    host = request.headers.get("host", "localhost")
+    rp_id = host.split(":")[0]
+    expected_origin = request.headers.get("origin", settings.EXPECTED_ORIGIN)
+
     common_error = HTTPException(status_code=400, detail="Authentication failed")
 
     challenge_data = crud.get_challenge(db, verify_data.authentication_response.get("challenge"))
@@ -764,11 +708,12 @@ async def webauthn_login_verify(
         )
     
     try:
+        import base64
         verification = verify_authentication_response(
             credential=verify_data.authentication_response,
-            expected_challenge=challenge_data.challenge.encode("utf-8"),
-            expected_origin=settings.EXPECTED_ORIGIN,
-            expected_rp_id=settings.RP_ID,
+            expected_challenge=base64.urlsafe_b64decode(challenge_data.challenge + "=="),
+            expected_origin=expected_origin,
+            expected_rp_id=rp_id,
             credential_public_key=db_credential.public_key,
             credential_current_sign_count=db_credential.sign_count,
             require_user_verification=True,

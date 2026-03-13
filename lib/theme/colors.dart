@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppTheme {
-  dark,
-  cyberpunk,
-  glassmorphism,
-}
+enum AppTheme { dark, cyberpunk, glassmorphism }
 
 abstract class BaseTheme {
   // Базовые цвета
@@ -16,12 +12,12 @@ abstract class BaseTheme {
   Color get secondary;
   Color get surface;
   Color get error;
-  
+
   // Градиенты
   List<Color>? get backgroundGradient;
   List<Color>? get buttonGradient;
   List<Color>? get cardGradient;
-  
+
   // Эффекты
   bool get hasGlassEffect;
   bool get hasNeonGlow;
@@ -46,14 +42,14 @@ class DarkTheme extends BaseTheme {
   Color get surface => const Color(0xFF2A1F3D);
   @override
   Color get error => const Color(0xFFE74C3C);
-  
+
   @override
   List<Color>? get backgroundGradient => null;
   @override
   List<Color>? get buttonGradient => null;
   @override
   List<Color>? get cardGradient => null;
-  
+
   @override
   bool get hasGlassEffect => false;
   @override
@@ -81,27 +77,27 @@ class CyberpunkTheme extends BaseTheme {
   Color get surface => const Color(0xFF151515);
   @override
   Color get error => const Color(0xFFFF0040);
-  
+
   @override
   List<Color> get backgroundGradient => [
     const Color(0xFF0A0A0A),
     const Color(0xFF1A0A1A),
     const Color(0xFF0A1A1A),
   ];
-  
+
   @override
   List<Color> get buttonGradient => [
     const Color(0xFF00FFFF),
     const Color(0xFF0080FF),
     const Color(0xFF8000FF),
   ];
-  
+
   @override
   List<Color> get cardGradient => [
     const Color(0xFF1A1A1A),
     const Color(0xFF2A1A2A),
   ];
-  
+
   @override
   bool get hasGlassEffect => false;
   @override
@@ -129,26 +125,26 @@ class GlassmorphismTheme extends BaseTheme {
   Color get surface => const Color(0xFF181825);
   @override
   Color get error => const Color(0xFFF38BA8);
-  
+
   @override
   List<Color> get backgroundGradient => [
     const Color(0xFF1E1E2E),
     const Color(0xFF2D2A45),
     const Color(0xFF3E3A5C),
   ];
-  
+
   @override
   List<Color> get buttonGradient => [
     const Color(0xFF89B4FA),
     const Color(0xFFB4BEFE),
   ];
-  
+
   @override
   List<Color> get cardGradient => [
     const Color(0x40313244),
     const Color(0x60181825),
   ];
-  
+
   @override
   bool get hasGlassEffect => true;
   @override
@@ -162,10 +158,10 @@ class GlassmorphismTheme extends BaseTheme {
 class ThemeManager {
   static AppTheme _currentTheme = AppTheme.dark;
   static BaseTheme _colors = DarkTheme();
-  
+
   static AppTheme get currentTheme => _currentTheme;
   static BaseTheme get colors => _colors;
-  
+
   static void setTheme(AppTheme theme) {
     _currentTheme = theme;
     switch (theme) {
@@ -180,7 +176,7 @@ class ThemeManager {
         break;
     }
   }
-  
+
   static String getThemeName(AppTheme theme) {
     switch (theme) {
       case AppTheme.dark:

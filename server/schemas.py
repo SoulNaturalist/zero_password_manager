@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -44,8 +44,19 @@ class UserResponse(UserBase):
     id: int
     salt: str  # Client needs salt for KDF
     telegram_chat_id: Optional[str] = None
+    password_count: int = 0
     totp_secret: Optional[str] = None
     totp_uri: Optional[str] = None
+    has_seed_phrase: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def check_seed_phrase(cls, data: Any) -> Any:
+        if hasattr(data, 'seed_phrase_encrypted'):
+            data.has_seed_phrase = data.seed_phrase_encrypted is not None
+        elif isinstance(data, dict):
+            data['has_seed_phrase'] = data.get('seed_phrase_encrypted') is not None
+        return data
 
     class Config:
         from_attributes = True
@@ -55,6 +66,12 @@ class ProfileUpdate(BaseModel):
     password: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     totp_code: Optional[str] = None
+
+
+class PasswordResetRequest(BaseModel):
+    login: str
+    totp_code: str
+    new_password: str
 
 
 # ── WebAuthn Schemas ──────────────────────────────────────────────────────────
@@ -133,6 +150,17 @@ class HistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class HistoryCreate(BaseModel):
+    password_id: Optional[int] = None
+    action_type: str
+    action_details: Dict[str, Any]
+    site_url: str
+
+
+class PasswordImport(BaseModel):
+    items: List[PasswordCreate]
 
 
 class TOTPSetupResponse(BaseModel):

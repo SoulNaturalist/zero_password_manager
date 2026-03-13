@@ -16,4 +16,4 @@ class ConfigTest {
     print('Import Passwords: ${AppConfig.importPasswordsUrl}');
     print('========================');
   }
-} 
+}

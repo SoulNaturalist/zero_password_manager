@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:passkeys/passkeys.dart';
+import 'package:passkeys/authenticator.dart';
+import 'package:passkeys/types.dart';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'api_service.dart';
@@ -20,20 +21,57 @@ class PasskeyService {
         AppConfig.webauthnRegisterOptionsUrl,
         body: {'device_name': deviceName},
       );
-      
+
       if (response.statusCode != 200) return false;
       final optionsResponse = json.decode(response.body);
 
-      // 2. Pass options to the authenticator (biometric prompt)
-      final registrationResult = await _passkeyAuth.register(
-        PasskeyRegistrationOptions.fromJson(optionsResponse),
+      final challenge = optionsResponse['challenge'] as String? ?? '';
+      final rp = RelyingPartyType(
+        name: optionsResponse['rp']['name'],
+        id: optionsResponse['rp']['id'],
       );
+      final user = UserType(
+        displayName: optionsResponse['user']['displayName'],
+        name: optionsResponse['user']['name'],
+        id: optionsResponse['user']['id'],
+      );
+      
+      final authSelection = optionsResponse['authenticatorSelection'] ?? {};
+      final authSelectionType = AuthenticatorSelectionType(
+        authenticatorAttachment: authSelection['authenticatorAttachment'],
+        requireResidentKey: authSelection['requireResidentKey'] ?? false,
+        residentKey: authSelection['residentKey'],
+        userVerification: authSelection['userVerification'],
+      );
+      
+      final pubKeyCredParams = (optionsResponse['pubKeyCredParams'] as List?)
+          ?.map((e) => PubKeyCredParamType(alg: e['alg'], type: e['type']))
+          .whereType<PubKeyCredParamType>()
+          .toList();
+
+      final request = RegisterRequestType(
+        challenge: _normalizeChallenge(challenge),
+        relyingParty: rp,
+        user: user,
+        authSelectionType: authSelectionType,
+        pubKeyCredParams: pubKeyCredParams,
+        excludeCredentials: [],
+        timeout: optionsResponse['timeout'],
+        attestation: optionsResponse['attestation'],
+      );
+
+      final registrationResult = await _passkeyAuth.register(request);
 
       // 3. Verify with backend
       final verifyResponse = await ApiService.post(
         AppConfig.webauthnRegisterVerifyUrl,
         body: {
-          'registration_response': registrationResult.toJson(),
+          'registration_response': {
+            'id': registrationResult.id,
+            'rawId': registrationResult.rawId,
+            'clientDataJSON': registrationResult.clientDataJSON,
+            'attestationObject': registrationResult.attestationObject,
+          },
           'device_name': deviceName,
           'device_id': deviceId,
         },
@@ -56,23 +94,47 @@ class PasskeyService {
         Uri.parse(AppConfig.webauthnLoginOptionsUrl),
         headers: {'Content-Type': 'application/json'},
       );
-      
+
       if (response.statusCode != 200) return null;
       final optionsResponse = json.decode(response.body);
 
       // 2. Authenticate with the platform
-      final authenticationResult = await _passkeyAuth.authenticate(
-        PasskeyAuthenticationOptions.fromJson(optionsResponse),
+      final allowCredentials = (optionsResponse['allowCredentials'] as List?)
+          ?.map(
+            (e) => CredentialType(
+              id: e['id'],
+              type: e['type'],
+              transports: (e['transports'] as List?)?.cast<String>() ?? [],
+            ),
+          )
+          .toList();
+
+      final request = AuthenticateRequestType(
+        relyingPartyId: optionsResponse['rpId'],
+        challenge: _normalizeChallenge(optionsResponse['challenge']),
+        timeout: optionsResponse['timeout'],
+        userVerification: optionsResponse['userVerification'],
+        allowCredentials: allowCredentials,
+        mediation: MediationType.Optional,
+        preferImmediatelyAvailableCredentials: true,
       );
+
+      final authenticationResult = await _passkeyAuth.authenticate(request);
 
       // 3. Verify with backend
       final verifyResponse = await http.post(
         Uri.parse(AppConfig.webauthnLoginVerifyUrl),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          'authentication_response': authenticationResult.toJson(),
+          'authentication_response': {
+            'id': authenticationResult.id,
+            'rawId': authenticationResult.rawId,
+            'clientDataJSON': authenticationResult.clientDataJSON,
+            'authenticatorData': authenticationResult.authenticatorData,
+            'signature': authenticationResult.signature,
+          },
           'device_id': deviceId,
-          'device_name': 'Mobile Device', 
+          'device_name': 'Mobile Device',
         }),
       );
 
@@ -84,8 +146,12 @@ class PasskeyService {
     }
   }
 
+  /// Remove padding and ensure base64url format for challenges as required by passkeys 2.x
+  String _normalizeChallenge(String challenge) {
+    return challenge.replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
+  }
+
   /// Store the Master Key (vault_key) securely
-  /// It should be stored after a successful password login or during initial sync
   Future<void> saveVaultKey(String vaultKeyBase64) async {
     await _storage.write(
       key: _vaultKeyKey,
@@ -109,11 +175,9 @@ class PasskeyService {
     await _storage.delete(key: _vaultKeyKey);
   }
 
-  AndroidOptions _getAndroidOptions() => const AndroidOptions(
-        encryptedSharedPreferences: true,
-      );
+  AndroidOptions _getAndroidOptions() =>
+      const AndroidOptions(encryptedSharedPreferences: true);
 
-  IOSOptions _getIOSOptions() => const IOSOptions(
-        accessibility: KeychainAccessibility.biometryCurrentSet,
-      );
+  IOSOptions _getIOSOptions() =>
+      const IOSOptions(accessibility: KeychainAccessibility.first_unlock);
 }

@@ -32,8 +32,18 @@ class PasswordCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(service, style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.bold)),
-                Text(emailOrUser, style: const TextStyle(color: Colors.white70)),
+                Text(
+                  service,
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  emailOrUser,
+                  style: const TextStyle(color: Colors.white70),
+                ),
                 Text(password, style: const TextStyle(color: Colors.white54)),
               ],
             ),

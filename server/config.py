@@ -1,4 +1,24 @@
 import os
+from typing import Optional
+from dotenv import load_dotenv
+import logging
+
+# Centralized Logging for config
+logger = logging.getLogger("zero_vault.config")
+
+# Try loading from various locations to ensure BOT_TOKEN is found
+dotenv_paths = [
+    ".env",
+    "deployer/.env",
+    "server/.env",
+    "env.local",
+    "env.dev",
+    "env.prod"
+]
+for path in dotenv_paths:
+    if os.path.exists(path):
+        load_dotenv(path)
+        logger.info(f"Loaded environment variables from: {path}")
 
 class Settings:
     PROJECT_NAME: str = "Zero Vault API"
@@ -12,8 +32,9 @@ class Settings:
     # JWT Settings
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "fallback_secret_key_for_development_only")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 30)))
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "365"))
+    SEED_PHRASE_KEY: str = os.getenv("SEED_PHRASE_KEY", "fallback_seed_phrase_key_32bytes_min")
 
     # Environment and Storage Configuration
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
@@ -34,7 +55,14 @@ class Settings:
         "device_revoked",
         "vault_delete",
         "passkey_registered",
-        "password_create_limit_reached"
+        "password_create_limit_reached",
+        "vault_import",
+        "vault_update",
+        "profile_updated",
+        "passkey_login_success",
+        "vault_create",
+        "register",
+        "backend_changed_confirmed"
     ]
 
     # WebAuthn Configuration

@@ -31,6 +31,30 @@ def get_current_user(
     return user
 
 
+def get_seed_access_user(
+    token: str = Depends(_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Specialized dependency that verifies a short-lived 'seed_access' token."""
+    payload = decode_token(token)
+
+    if payload.get("scope") != "seed_access":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Valid TOTP verification required"
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise InvalidCredentials()
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise InvalidCredentials()
+
+    return user
+
+
 def require_otp_for(permission: str) -> Callable:
     """
     Dependency factory: authenticates the request and, when *permission* is

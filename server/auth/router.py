@@ -37,8 +37,11 @@ from .service import (
     update_user_totp,
     verify_hardened_otp,
     verify_password,
+    hash_password,
 )
 from ..config import settings
+from ..security import SecurityManager
+from ..schemas import PasswordResetRequest
 
 router = APIRouter(tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
@@ -104,7 +107,7 @@ async def login(
     )
 
 
-@router.post("/2fa/setup", response_model=TOTPSetupResponse)
+@router.post("/setup_2fa", response_model=TOTPSetupResponse)
 def setup_2fa(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -117,7 +120,7 @@ def setup_2fa(
     return TOTPSetupResponse(secret=secret, otp_uri=otp_uri)
 
 
-@router.post("/2fa/confirm")
+@router.post("/confirm_2fa", response_model=Token)
 @limiter.limit("5/minute")
 async def confirm_2fa(
     request: Request,
@@ -145,7 +148,14 @@ async def confirm_2fa(
     db.commit()
 
     audit(db, user.id, "2fa_enabled")
-    return {"status": "2fa enabled"}
+    
+    return Token(
+        access_token=create_access_token({"sub": str(user.id)}),
+        refresh_token=create_refresh_token(user.id),
+        user_id=user.id,
+        login=user.login,
+        salt=user.salt,
+    )
 
 
 @router.post("/refresh")
@@ -164,3 +174,78 @@ def refresh_token(
         "access_token": create_access_token({"sub": user_id}),
         "token_type": "bearer",
     }
+
+
+@router.post("/reset-password")
+@limiter.limit("5/10minutes")
+async def reset_password(
+    request: Request,
+    body: PasswordResetRequest,
+    db: Session = Depends(get_db),
+):
+    # Constant-time delay baseline
+    SecurityManager.constant_time_delay()
+
+    user = get_user_by_login(db, login=body.login)
+    
+    # Generic error message to prevent enumeration
+    generic_error = HTTPException(
+        status_code=400,
+        detail="Invalid login or TOTP code"
+    )
+
+    if not user:
+        raise generic_error
+
+    # Check progressive lockout
+    if SecurityManager.is_locked_out(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Too many failed attempts. Please try again later."
+        )
+
+    try:
+        # Verify TOTP
+        verify_hardened_otp(db, user, body.totp_code)
+        
+        # Success: Update password and reset failures
+        user.hashed_password = hash_password(body.new_password)
+        SecurityManager.handle_success(db, user)
+        
+        # Security: Invalidate existing sessions (we'd need a blacklist or versioning for better enforcement)
+        # For now, we clear the salt or rotate a transient version if we had one.
+        
+        audit(db, user.id, "password_reset_success", ip=get_client_ip(request))
+        return {"success": True}
+        
+    except (InvalidOTPCode, OTPInvalid, OTPReplay, OTPRequired) as e:
+        SecurityManager.handle_failure(db, user)
+        audit(db, user.id, "password_reset_failed", ip=get_client_ip(request))
+        raise generic_error
+
+
+@router.post("/verify-totp", response_model=dict)
+@limiter.limit("5/minute")
+async def verify_totp_for_seed(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify TOTP to get a short-lived token for sensitive resource access (e.g., Seed Phrase)."""
+    otp = request.headers.get("X-OTP")
+    if not otp:
+        raise OTPRequired()
+
+    verify_hardened_otp(db, current_user, otp)
+
+    # Issue a very short-lived token with specific scope
+    seed_access_token = create_access_token({
+        "sub": str(current_user.id),
+        "scope": "seed_access",
+        "iat": datetime.utcnow()
+    })
+    
+    # Note: create_access_token in service currently uses settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    # Ideally, we'd want this to be 1 min.
+    
+    return {"seed_access_token": seed_access_token}

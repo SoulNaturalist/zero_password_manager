@@ -1,26 +1,79 @@
+from datetime import datetime, timezone, timedelta
 import httpx
+import secrets
 import re
+import html
+import ipaddress
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from fastapi import BackgroundTasks, HTTPException, status
-from . import models, schemas, auth
+from . import models, schemas, auth_legacy as auth
 from .config import settings
 
 async def send_telegram_message(chat_id: str, text: str):
     """Sends a security alert to Telegram (background task)."""
     if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
+        import logging
+        logging.warning(f"Telegram skip: BOT_TOKEN={bool(settings.TELEGRAM_BOT_TOKEN)}, chat_id={bool(chat_id)}")
         return
     url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
     async with httpx.AsyncClient(timeout=5) as client:
         try:
-            await client.post(url, json={
+            resp = await client.post(url, json={
                 "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown"
+                "text": text
             })
+            if resp.status_code != 200:
+                import logging
+                logging.error(f"Telegram API error: {resp.status_code} - {resp.text}")
         except Exception as e:
             import logging
             logging.error(f"Telegram notification failed: {e}")
+
+async def get_ip_location(ip: str) -> str:
+    """Resolves IP to City, Country using ip-api.com. Defaults to 'Локальная сеть'."""
+    if not ip or ip in ("N/A", "0.0.0.0", "127.0.0.1", "localhost", "::1"):
+        return "Локальная сеть"
+        
+    try:
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback:
+            return "Локальная сеть"
+    except Exception:
+        pass
+    
+    url = f"http://ip-api.com/json/{ip}?fields=status,message,country,city"
+    async with httpx.AsyncClient(timeout=3) as client:
+        try:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    city = data.get("city", "Unknown City")
+                    country = data.get("country", "Unknown Country")
+                    return f"{city}, {country}"
+        except Exception:
+            pass
+    return "Локальная сеть"
+
+async def notify_security_event(chat_id: str, event: str, user_id: int, ip: str, safe_meta: dict):
+    """Async wrapper to resolve location and then send telegram message."""
+    actual_ip = ip if ip and ip != "N/A" else "0.0.0.0"
+    location = await get_ip_location(actual_ip)
+    
+    user_info = str(user_id)
+    ip_info = f"{actual_ip} ({location})"
+    
+    message = (
+        f"🚨 SECURITY ALERT\n"
+        f"Event: {event}\n"
+        f"User ID: {user_info}\n"
+        f"Location: {ip_info}"
+    )
+    if safe_meta:
+         message += f"\nDetails: {safe_meta}"
+         
+    await send_telegram_message(chat_id, message)
 
 def audit_event(db: Session, user_id: int, event: str, meta: dict = None, ip: str = None, background_tasks: BackgroundTasks = None):
     """Records audit trail and triggers async Telegram alerts for the user."""
@@ -39,12 +92,17 @@ def audit_event(db: Session, user_id: int, event: str, meta: dict = None, ip: st
             if "site_hash" in meta:
                  safe_meta["site_hash"] = meta["site_hash"]
         
-        user_info = f"User ID: {user_id}"
-        ip_info = f"IP: {ip}" if ip else ""
-        meta_info = f"Details: {safe_meta}" if safe_meta else ""
-        
-        message = f"🚨 *NK3 Security Alert*\n*Event*: `{event}`\n*User*: `{user_info}`\n{ip_info}\n{meta_info}"
-        background_tasks.add_task(send_telegram_message, user.telegram_chat_id, message)
+        background_tasks.add_task(
+            notify_security_event, 
+            user.telegram_chat_id, 
+            event, 
+            user_id, 
+            ip, 
+            safe_meta
+        )
+    elif background_tasks:
+        import logging
+        logging.info(f"Audit event '{event}' trigger logic skip: user={bool(user)}, has_chat_id={bool(user.telegram_chat_id if user else False)}, in_critical={event in settings.CRITICAL_EVENTS}")
 
 
 def validate_password_strength(password: str) -> bool:
@@ -60,6 +118,10 @@ def validate_password_strength(password: str) -> bool:
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
         return False
     return True
+
+
+def get_user_by_login(db: Session, login: str):
+    return db.query(models.User).filter(models.User.login == login).first()
 
 
 def create_user(db: Session, user: schemas.UserCreate, background_tasks: BackgroundTasks = None):
@@ -128,6 +190,30 @@ def create_password(db: Session, password: schemas.PasswordCreate, user_id: int,
     return db_password
 
 
+def import_passwords(db: Session, data: schemas.PasswordImport, user_id: int, background_tasks: BackgroundTasks = None):
+    results = []
+    for item in data.items:
+        db_password = models.Password(
+            user_id=user_id,
+            folder_id=item.folder_id,
+            site_hash=item.site_hash,
+            encrypted_payload=item.encrypted_payload,
+            notes_encrypted=item.notes_encrypted,
+            encrypted_metadata=item.encrypted_metadata,
+            has_2fa=item.has_2fa,
+            has_seed_phrase=item.has_seed_phrase
+        )
+        db.add(db_password)
+        results.append(db_password)
+
+    db.commit()
+    for r in results:
+        db.refresh(r)
+
+    audit_event(db, user_id, "vault_import", meta={"count": len(results)}, background_tasks=background_tasks)
+    return results
+
+
 def update_password(db: Session, password_id: int, password: schemas.PasswordUpdate, user_id: int, background_tasks: BackgroundTasks = None):
     # ...
     db_password = db.query(models.Password).filter(
@@ -157,6 +243,20 @@ def update_password(db: Session, password_id: int, password: schemas.PasswordUpd
 
     audit_event(db, user_id, "vault_update", meta={"site_hash": password.site_hash}, background_tasks=background_tasks)
     return db_password
+
+
+def create_history(db: Session, history: schemas.HistoryCreate, user_id: int):
+    db_history = models.PasswordHistory(
+        user_id=user_id,
+        password_id=history.password_id,
+        action_type=history.action_type,
+        action_details=history.action_details,
+        site_url=history.site_url
+    )
+    db.add(db_history)
+    db.commit()
+    db.refresh(db_history)
+    return db_history
 
 
 def delete_password(db: Session, password_id: int, user_id: int, background_tasks: BackgroundTasks = None):

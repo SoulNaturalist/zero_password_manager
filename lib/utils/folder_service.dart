@@ -16,7 +16,10 @@ class FolderService {
   /// Returns list of folder maps from the server.
   static Future<List<Map<String, dynamic>>> getFolders() async {
     final headers = await _authHeaders();
-    final response = await ApiService.get(AppConfig.foldersUrl, headers: headers);
+    final response = await ApiService.get(
+      AppConfig.foldersUrl,
+      headers: headers,
+    );
     if (response.statusCode == 200) {
       final List data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
+import '../services/vault_service.dart';
 
 class PinScreen extends StatefulWidget {
   const PinScreen({super.key});
@@ -20,10 +21,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     4,
     (index) => TextEditingController(),
   );
-  final List<FocusNode> _focusNodes = List.generate(
-    4,
-    (index) => FocusNode(),
-  );
+  final List<FocusNode> _focusNodes = List.generate(4, (index) => FocusNode());
 
   late AnimationController _animationController;
   late AnimationController _shakeController;
@@ -54,29 +52,20 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
 
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.3),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
 
-    _shakeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _shakeController,
-      curve: Curves.elasticIn,
-    ));
+    _shakeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _shakeController, curve: Curves.elasticIn),
+    );
 
     _animationController.forward();
     _checkBiometricAvailability();
@@ -150,11 +139,20 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
       final reversedHash = sha256.convert(reversedBytes).toString();
       reversedBytes.fillRange(0, reversedBytes.length, 0); // zero immediately
 
-      // Zero entered PIN bytes before branching
-      _pinBytes.fillRange(0, _pinBytes.length, 0);
-      _pinBytes = Uint8List(0);
-
       if (enteredHash == storedHash) {
+        final pinString = String.fromCharCodes(_pinBytes);
+        // Zero entered PIN bytes after converting to string
+        _pinBytes.fillRange(0, _pinBytes.length, 0);
+        _pinBytes = Uint8List(0);
+
+        // 1. If vault is locked (cold start), restore using the PIN
+        if (VaultService().isLocked) {
+          await VaultService().unlockWithPin(pinString);
+        } else {
+          // 2. If already unlocked (fresh login), persist it using the PIN
+          await VaultService().storeMasterKeyWithPin(pinString);
+        }
+        
         _showSuccessAnimation();
       } else if (reversedHash == storedHash) {
         // Duress PIN (reversed digits): wipe vault
@@ -194,7 +192,11 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
       if (pinHash != null) await prefs.setString('pin_hash', pinHash);
       if (tkn != null) await prefs.setString('token', tkn);
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/passwords',
+          (route) => false,
+        );
       }
     } catch (e) {
       setState(() {
@@ -205,37 +207,37 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
   }
 
   void _showSuccessAnimation() {
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/passwords',
-      (route) => false,
-    );
+    // Enable sticky immersive mode locally for Android to hide navigation bars
+    // This provides more space and prevents the "Save" button from overlapping.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
   }
 
   void _showBlockedDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.input,
-        title: Text(
-          'Доступ заблокирован',
-          style: TextStyle(color: AppColors.text),
-        ),
-        content: const Text(
-          'Слишком много неудачных попыток. Попробуйте позже.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.pushReplacementNamed(context, '/login');
-            },
-            child: const Text('Вернуться к входу'),
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: AppColors.input,
+            title: Text(
+              'Доступ заблокирован',
+              style: TextStyle(color: AppColors.text),
+            ),
+            content: const Text(
+              'Слишком много неудачных попыток. Попробуйте позже.',
+              style: TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  Navigator.pushReplacementNamed(context, '/login');
+                },
+                child: const Text('Вернуться к входу'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -263,11 +265,17 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   Future<void> _authenticateWithBiometrics() async {
     try {
-      final authenticated = await BiometricService.authenticate(
+      final authSecret = await BiometricService.authenticate(
         reason: 'Подтвердите свою личность для доступа к паролям',
       );
 
-      if (authenticated) {
+      if (authSecret != null) {
+        // Biometrics already use the vault service to unlock
+        await VaultService().tryUnlockWithBiometrics();
+
+        // Enable sticky immersive mode locally for Android
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
         Navigator.pushNamedAndRemoveUntil(
           context,
           '/passwords',
@@ -278,7 +286,9 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               backgroundColor: Colors.orange,
-              content: Text('Биометрическая аутентификация не удалась. Используйте PIN-код.'),
+              content: Text(
+                'Биометрическая аутентификация не удалась. Используйте PIN-код.',
+              ),
             ),
           );
         }
@@ -353,10 +363,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const Text(
                     'Для доступа к приложению',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey,
-                    ),
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
 
                   const SizedBox(height: 40),
@@ -366,7 +373,9 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                     builder: (context, child) {
                       return Transform.translate(
                         offset: Offset(
-                          _shakeAnimation.value * 10 * (_attempts % 2 == 0 ? 1 : -1),
+                          _shakeAnimation.value *
+                              10 *
+                              (_attempts % 2 == 0 ? 1 : -1),
                           0,
                         ),
                         child: Row(
@@ -379,9 +388,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                                 color: AppColors.input,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: _focusNodes[index].hasFocus
-                                      ? AppColors.button
-                                      : Colors.transparent,
+                                  color:
+                                      _focusNodes[index].hasFocus
+                                          ? AppColors.button
+                                          : Colors.transparent,
                                   width: 2,
                                 ),
                                 boxShadow: [
@@ -432,16 +442,11 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.red.withOpacity(0.3),
-                        ),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 
@@ -449,17 +454,16 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   if (_isLoading)
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.button),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.button,
+                      ),
                     ),
 
                   const SizedBox(height: 40),
 
                   const Text(
                     'Используйте PIN-код для быстрого доступа',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
 
@@ -467,10 +471,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
                       onPressed: _authenticateWithBiometrics,
-                      icon: const Icon(
-                        Icons.fingerprint,
-                        color: Colors.white,
-                      ),
+                      icon: const Icon(Icons.fingerprint, color: Colors.white),
                       label: const Text(
                         'Использовать биометрию',
                         style: TextStyle(color: Colors.white),
@@ -496,10 +497,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                     },
                     child: const Text(
                       'Выйти',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 16,
-                      ),
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
                     ),
                   ),
                 ],

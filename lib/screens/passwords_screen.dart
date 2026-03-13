@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:csv/csv.dart';
+import 'dart:io';
+import 'dart:typed_data';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../main.dart';
@@ -118,21 +121,30 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
     try {
       final decryptedData = await VaultService().syncVault();
-      
+
       setState(() {
-        passwords = decryptedData.map<Map<String, dynamic>>((item) => {
-          'id': item['id'],
-          'title': item['name'] ?? item['site_url'] ?? 'Безымянный', // From metadata
-          'subtitle': item['site_login'] ?? 'Нет логина', // From metadata
-          'password': item['encrypted_payload'], // Still encrypted
-          'has_2fa': item['has_2fa'],
-          'has_seed_phrase': item['has_seed_phrase'],
-          'seed_phrase': item['seed_phrase'],
-          'notes_encrypted': item['notes_encrypted'],
-          'favicon_url': item['favicon_url'],
-          'folder_id': item['folder_id'],
-          'site_url': item['site_url'], // From metadata
-        }).toList();
+        passwords =
+            decryptedData
+                .map<Map<String, dynamic>>(
+                  (item) => {
+                    'id': item['id'],
+                    'title':
+                        item['name'] ??
+                        item['site_url'] ??
+                        'Безымянный', // From metadata
+                    'subtitle':
+                        item['site_login'] ?? 'Нет логина', // From metadata
+                    'password': item['encrypted_payload'], // Still encrypted
+                    'has_2fa': item['has_2fa'],
+                    'has_seed_phrase': item['has_seed_phrase'],
+                    'seed_phrase': item['seed_phrase'],
+                    'notes_encrypted': item['notes_encrypted'],
+                    'favicon_url': item['favicon_url'],
+                    'folder_id': item['folder_id'],
+                    'site_url': item['site_url'], // From metadata
+                  },
+                )
+                .toList();
         isLoading = false;
       });
     } catch (e) {
@@ -144,9 +156,10 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           final pwd = CacheService().getCachedPassword(hash);
           if (pwd != null) cachedList.add(pwd);
         }
-        
+
         setState(() {
-          passwords = cachedList; // Already partially decrypted metadata if synced before
+          passwords =
+              cachedList; // Already partially decrypted metadata if synced before
           isLoading = false;
         });
       } else {
@@ -159,7 +172,9 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (mounted) {
-        setState(() => _hideSeedPhrases = prefs.getBool('hide_seed_phrases') ?? false);
+        setState(
+          () => _hideSeedPhrases = prefs.getBool('hide_seed_phrases') ?? false,
+        );
       }
     } catch (_) {
       if (mounted) setState(() => _hideSeedPhrases = false);
@@ -175,58 +190,69 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         allowedExtensions: ['csv'],
         withData: true,
       );
-      if (result == null) return;
+      if (result == null || result.files.isEmpty) return;
 
       setState(() => isImporting = true);
 
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final file = result.files.single;
+      late String csvString;
 
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse(AppConfig.importPasswordsUrl),
-      );
-      request.headers.addAll({
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-      });
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          result.files.single.bytes!,
-          filename: result.files.single.name,
-        ),
-      );
+      if (file.bytes != null) {
+        csvString = utf8.decode(file.bytes!);
+      } else if (file.path != null) {
+        csvString = await File(file.path!).readAsString();
+      } else {
+        throw Exception("Cannot read file content");
+      }
 
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      final data = json.decode(response.body);
+      final List<List<dynamic>> rows = const CsvToListConverter().convert(csvString);
+      if (rows.isEmpty) throw Exception("CSV file is empty");
 
-      if (response.statusCode == 200) {
+      // Identify headers
+      final headers = rows[0].map((h) => h.toString().toLowerCase()).toList();
+      final urlIndex = headers.indexOf('url');
+      final userIndex = headers.indexOf('username');
+      final passIndex = headers.indexOf('password');
+
+      if (urlIndex == -1 || userIndex == -1 || passIndex == -1) {
+        throw Exception("Invalid CSV. Required headers: url, username, password");
+      }
+
+      final List<Map<String, String>> entries = [];
+      for (var i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length <= urlIndex || row.length <= userIndex || row.length <= passIndex) continue;
+        entries.add({
+          'url': row[urlIndex].toString(),
+          'username': row[userIndex].toString(),
+          'password': row[passIndex].toString(),
+        });
+      }
+
+      if (entries.isEmpty) throw Exception("No valid entries found");
+
+      await VaultService().importPasswordsBatch(entries);
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.green,
-            content: Text('Импортировано: ${data['imported']}, Ошибок: ${data['failed']}'),
+            content: Text('Успешно импортировано ${entries.length} паролей'),
           ),
         );
         _loadPasswords();
-      } else {
+      }
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red,
-            content: Text(data['error'] ?? 'Ошибка при импорте'),
+            content: Text('Ошибка импорта: ${e.toString()}'),
           ),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.red,
-          content: Text('Ошибка при импорте файла: ${e.toString()}'),
-        ),
-      );
     } finally {
-      setState(() => isImporting = false);
+      if (mounted) setState(() => isImporting = false);
     }
   }
 
@@ -252,7 +278,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
       final response = await http.get(
         Uri.parse(
-            '${AppConfig.baseUrl}/passwords/search/${Uri.encodeComponent(query.trim())}'),
+          '${AppConfig.baseUrl}/passwords/search/${Uri.encodeComponent(query.trim())}',
+        ),
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -260,18 +287,23 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         final data = json.decode(response.body);
         final List results = data['results'] ?? [];
         setState(() {
-          searchResults = results.map<Map<String, dynamic>>((item) => {
-            'id': item['id'],
-            'title': item['site_url'],
-            'subtitle': item['site_login'],
-            'password': item['site_password'],
-            'has_2fa': item['has_2fa'],
-            'has_seed_phrase': item['has_seed_phrase'],
-            'seed_phrase': item['seed_phrase'],
-            'notes': item['notes'],
-            'favicon_url': item['favicon_url'],
-            'folder_id': item['folder_id'],
-          }).toList();
+          searchResults =
+              results
+                  .map<Map<String, dynamic>>(
+                    (item) => {
+                      'id': item['id'],
+                      'title': item['site_url'],
+                      'subtitle': item['site_login'],
+                      'password': item['site_password'],
+                      'has_2fa': item['has_2fa'],
+                      'has_seed_phrase': item['has_seed_phrase'],
+                      'seed_phrase': item['seed_phrase'],
+                      'notes': item['notes'],
+                      'favicon_url': item['favicon_url'],
+                      'folder_id': item['folder_id'],
+                    },
+                  )
+                  .toList();
           isSearching = false;
         });
       } else {
@@ -301,18 +333,23 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   void _copyPassword(String encryptedPassword) async {
     if (encryptedPassword.isEmpty) return;
-    
+
     try {
       final decrypted = await VaultService().decryptPayload(encryptedPassword);
       Clipboard.setData(ClipboardData(text: decrypted));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.button,
-          content: const Row(children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 10),
-            Text('Пароль дешифрован и скопирован', style: TextStyle(color: Colors.white)),
-          ]),
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 10),
+              Text(
+                'Пароль дешифрован и скопирован',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
         ),
       );
     } catch (e) {
@@ -331,11 +368,16 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.accent,
-        content: const Row(children: [
-          Icon(Icons.check_circle, color: Colors.white),
-          SizedBox(width: 10),
-          Text('Seed фраза скопирована в буфер обмена', style: TextStyle(color: Colors.white)),
-        ]),
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 10),
+            Text(
+              'Seed фраза скопирована в буфер обмена',
+              style: TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -350,7 +392,9 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   void _navigateToEditPassword(Map<String, dynamic> password) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => EditPasswordScreen(password: password)),
+      MaterialPageRoute(
+        builder: (context) => EditPasswordScreen(password: password),
+      ),
     );
 
     if (result == true) {
@@ -358,7 +402,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     } else if (result != null && result['success'] == true) {
       setState(() {
         final index = passwords.indexWhere(
-            (p) => p['id'] == password['id'] || p['title'] == password['title']);
+          (p) => p['id'] == password['id'] || p['title'] == password['title'],
+        );
         if (index != -1) {
           passwords[index] = {
             'id': result['data']['id'],
@@ -411,22 +456,24 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
       final uri = Uri.parse(fullUrl);
       String domain = uri.host;
       if (siteUrl.toLowerCase().contains('metamask')) domain = 'metamask.io';
-      final faviconUrl = 'https://www.google.com/s2/favicons?domain=$domain&sz=32';
+      final faviconUrl =
+          'https://www.google.com/s2/favicons?domain=$domain&sz=32';
 
       return Image.network(
         faviconUrl,
         width: 24,
         height: 24,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: const Icon(Icons.language, size: 14, color: Colors.grey),
-        ),
+        errorBuilder:
+            (_, __, ___) => Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(Icons.language, size: 14, color: Colors.grey),
+            ),
       );
     } catch (_) {
       return Container(
@@ -449,24 +496,31 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: isSearchMode
-              ? _buildSearchField()
-              : NeonText(
-                  text: _selectedFolderId == null
-                      ? 'Пароли'
-                      : _folderName(_selectedFolderId!),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
-              ? AppColors.background
-              : Colors.black.withOpacity(0.3),
+          title:
+              isSearchMode
+                  ? _buildSearchField()
+                  : NeonText(
+                    text:
+                        _selectedFolderId == null
+                            ? 'Пароли'
+                            : _folderName(_selectedFolderId!),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+          backgroundColor:
+              ThemeManager.currentTheme == AppTheme.dark
+                  ? AppColors.background
+                  : Colors.black.withOpacity(0.3),
           elevation: 0,
-          leading: _selectedFolderId != null
-              ? IconButton(
-                  icon: Icon(Icons.arrow_back, color: AppColors.text),
-                  onPressed: () => setState(() => _selectedFolderId = null),
-                )
-              : null,
+          leading:
+              _selectedFolderId != null
+                  ? IconButton(
+                    icon: Icon(Icons.arrow_back, color: AppColors.text),
+                    onPressed: () => setState(() => _selectedFolderId = null),
+                  )
+                  : null,
           actions: [
             if (!isSearchMode)
               IconButton(
@@ -513,12 +567,14 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           ],
         ),
         body: Container(
-          decoration: ThemeManager.currentTheme != AppTheme.dark
-              ? BoxDecoration(color: Colors.black.withOpacity(0.1))
-              : null,
-          child: isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _buildBody(),
+          decoration:
+              ThemeManager.currentTheme != AppTheme.dark
+                  ? BoxDecoration(color: Colors.black.withOpacity(0.1))
+                  : null,
+          child:
+              isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildBody(),
         ),
       ),
     );
@@ -544,13 +600,20 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         decoration: InputDecoration(
           hintText: 'Поиск паролей...',
           hintStyle: TextStyle(color: AppColors.text.withOpacity(0.6)),
-          prefixIcon: Icon(Icons.search, color: AppColors.text.withOpacity(0.6)),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: Icon(Icons.clear, color: AppColors.text.withOpacity(0.6)),
-                  onPressed: _clearSearch,
-                )
-              : null,
+          prefixIcon: Icon(
+            Icons.search,
+            color: AppColors.text.withOpacity(0.6),
+          ),
+          suffixIcon:
+              _searchController.text.isNotEmpty
+                  ? IconButton(
+                    icon: Icon(
+                      Icons.clear,
+                      color: AppColors.text.withOpacity(0.6),
+                    ),
+                    onPressed: _clearSearch,
+                  )
+                  : null,
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
@@ -595,13 +658,23 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search_off, size: 64, color: AppColors.text.withOpacity(0.5)),
+            Icon(
+              Icons.search_off,
+              size: 64,
+              color: AppColors.text.withOpacity(0.5),
+            ),
             const SizedBox(height: 16),
-            NeonText(text: 'Пароли не найдены', style: const TextStyle(fontSize: 18)),
+            NeonText(
+              text: 'Пароли не найдены',
+              style: const TextStyle(fontSize: 18),
+            ),
             const SizedBox(height: 8),
             Text(
               'Попробуйте изменить запрос',
-              style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.text.withOpacity(0.7),
+              ),
             ),
           ],
         ),
@@ -612,9 +685,16 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search, size: 64, color: AppColors.text.withOpacity(0.5)),
+            Icon(
+              Icons.search,
+              size: 64,
+              color: AppColors.text.withOpacity(0.5),
+            ),
             const SizedBox(height: 16),
-            NeonText(text: 'Введите запрос для поиска', style: const TextStyle(fontSize: 18)),
+            NeonText(
+              text: 'Введите запрос для поиска',
+              style: const TextStyle(fontSize: 18),
+            ),
           ],
         ),
       );
@@ -624,9 +704,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   Widget _buildNormalBody() {
     // Filter passwords by selected folder
-    final List<Map<String, dynamic>> filtered = _selectedFolderId == null
-        ? passwords
-        : passwords.where((p) => p['folder_id'] == _selectedFolderId).toList();
+    final List<Map<String, dynamic>> filtered =
+        _selectedFolderId == null
+            ? passwords
+            : passwords
+                .where((p) => p['folder_id'] == _selectedFolderId)
+                .toList();
 
     return CustomScrollView(
       slivers: [
@@ -689,10 +772,17 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   );
                 }
                 final folder = folders[index - 1];
-                final color = _colorFromHex(folder['color'] as String? ?? '#5D52D2');
-                final iconData = _iconFromName(folder['icon'] as String? ?? 'folder');
+                final color = _colorFromHex(
+                  folder['color'] as String? ?? '#5D52D2',
+                );
+                final iconData = _iconFromName(
+                  folder['icon'] as String? ?? 'folder',
+                );
                 final isSelected = _selectedFolderId == folder['id'];
-                final count = passwords.where((p) => p['folder_id'] == folder['id']).length;
+                final count =
+                    passwords
+                        .where((p) => p['folder_id'] == folder['id'])
+                        .length;
 
                 return _buildFolderChip(
                   label: folder['name'] as String? ?? '',
@@ -700,7 +790,10 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   color: color,
                   count: count,
                   isSelected: isSelected,
-                  onTap: () => setState(() => _selectedFolderId = folder['id'] as int),
+                  onTap:
+                      () => setState(
+                        () => _selectedFolderId = folder['id'] as int,
+                      ),
                 );
               },
             ),
@@ -732,14 +825,19 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             color: isSelected ? color : Colors.transparent,
             width: 1.5,
           ),
-          boxShadow: isSelected && ThemeManager.colors.hasNeonGlow
-              ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10)]
-              : null,
+          boxShadow:
+              isSelected && ThemeManager.colors.hasNeonGlow
+                  ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10)]
+                  : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: isSelected ? color : AppColors.text.withOpacity(0.5), size: 22),
+            Icon(
+              icon,
+              color: isSelected ? color : AppColors.text.withOpacity(0.5),
+              size: 22,
+            ),
             const SizedBox(height: 4),
             Text(
               label,
@@ -757,7 +855,10 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
               '$count',
               style: TextStyle(
                 fontSize: 11,
-                color: isSelected ? color.withOpacity(0.8) : AppColors.text.withOpacity(0.4),
+                color:
+                    isSelected
+                        ? color.withOpacity(0.8)
+                        : AppColors.text.withOpacity(0.4),
               ),
             ),
           ],
@@ -780,9 +881,10 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
               ),
               const SizedBox(height: 20),
               NeonText(
-                text: _selectedFolderId != null
-                    ? 'Нет паролей в этой папке'
-                    : 'У вас пока нет сохранённых паролей',
+                text:
+                    _selectedFolderId != null
+                        ? 'Нет паролей в этой папке'
+                        : 'У вас пока нет сохранённых паролей',
                 style: const TextStyle(fontSize: 16),
               ),
             ],
@@ -794,9 +896,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   }
 
   Widget _buildPasswordsList(List<Map<String, dynamic>> passwordsToShow) {
-    final visiblePasswords = passwordsToShow
-        .where((item) => !(item['has_seed_phrase'] == true && _hideSeedPhrases))
-        .toList();
+    final visiblePasswords =
+        passwordsToShow
+            .where(
+              (item) => !(item['has_seed_phrase'] == true && _hideSeedPhrases),
+            )
+            .toList();
 
     if (visiblePasswords.isEmpty && _hideSeedPhrases) {
       return Padding(
@@ -804,13 +909,23 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.visibility_off, size: 64, color: AppColors.text.withOpacity(0.5)),
+              Icon(
+                Icons.visibility_off,
+                size: 64,
+                color: AppColors.text.withOpacity(0.5),
+              ),
               const SizedBox(height: 16),
-              NeonText(text: 'Все записи с seed фразами скрыты', style: const TextStyle(fontSize: 16)),
+              NeonText(
+                text: 'Все записи с seed фразами скрыты',
+                style: const TextStyle(fontSize: 16),
+              ),
               const SizedBox(height: 8),
               Text(
                 'Отключите скрытие в настройках, чтобы увидеть записи',
-                style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.7)),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.text.withOpacity(0.7),
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -854,7 +969,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       children: [
                         Row(
                           children: [
-                            if (item['favicon_url'] != null || item['title'] != null)
+                            if (item['favicon_url'] != null ||
+                                item['title'] != null)
                               Container(
                                 margin: const EdgeInsets.only(right: 12),
                                 width: 24,
@@ -871,31 +987,46 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(6),
-                                  child: item['favicon_url'] != null
-                                      ? Image.network(
-                                          item['favicon_url'],
-                                          width: 24,
-                                          height: 24,
-                                          fit: BoxFit.cover,
-                                          loadingBuilder: (ctx, child, progress) {
-                                            if (progress == null) return child;
-                                            return Shimmer.fromColors(
-                                              baseColor: AppColors.input,
-                                              highlightColor: AppColors.background,
-                                              child: Container(
-                                                width: 24,
-                                                height: 24,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white,
-                                                  borderRadius: BorderRadius.circular(6),
+                                  child:
+                                      item['favicon_url'] != null
+                                          ? Image.network(
+                                            item['favicon_url'],
+                                            width: 24,
+                                            height: 24,
+                                            fit: BoxFit.cover,
+                                            loadingBuilder: (
+                                              ctx,
+                                              child,
+                                              progress,
+                                            ) {
+                                              if (progress == null)
+                                                return child;
+                                              return Shimmer.fromColors(
+                                                baseColor: AppColors.input,
+                                                highlightColor:
+                                                    AppColors.background,
+                                                child: Container(
+                                                  width: 24,
+                                                  height: 24,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                  ),
                                                 ),
-                                              ),
-                                            );
-                                          },
-                                          errorBuilder: (_, __, ___) =>
-                                              _buildFallbackFavicon(item['title']),
-                                        )
-                                      : _buildFallbackFavicon(item['title']),
+                                              );
+                                            },
+                                            errorBuilder:
+                                                (_, __, ___) =>
+                                                    _buildFallbackFavicon(
+                                                      item['title'],
+                                                    ),
+                                          )
+                                          : _buildFallbackFavicon(
+                                            item['title'],
+                                          ),
                                 ),
                               ),
                             Expanded(
@@ -911,7 +1042,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                             ),
                           ],
                         ),
-                        if (item['subtitle'] != null && item['subtitle'].toString().isNotEmpty)
+                        if (item['subtitle'] != null &&
+                            item['subtitle'].toString().isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
@@ -930,10 +1062,13 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _iconFromName(itemFolder['icon'] as String? ?? 'folder'),
+                                  _iconFromName(
+                                    itemFolder['icon'] as String? ?? 'folder',
+                                  ),
                                   size: 12,
                                   color: _colorFromHex(
-                                      itemFolder['color'] as String? ?? '#5D52D2'),
+                                    itemFolder['color'] as String? ?? '#5D52D2',
+                                  ),
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
@@ -941,14 +1076,17 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: _colorFromHex(
-                                        itemFolder['color'] as String? ?? '#5D52D2'),
+                                      itemFolder['color'] as String? ??
+                                          '#5D52D2',
+                                    ),
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        if (item['notes'] != null && item['notes'].toString().isNotEmpty)
+                        if (item['notes'] != null &&
+                            item['notes'].toString().isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
@@ -969,9 +1107,10 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       if (item['has_2fa'] == true) ...[
                         Icon(
                           Icons.verified_user,
-                          color: ThemeManager.colors.hasNeonGlow
-                              ? AppColors.accent
-                              : AppColors.text,
+                          color:
+                              ThemeManager.colors.hasNeonGlow
+                                  ? AppColors.accent
+                                  : AppColors.text,
                           size: 20,
                         ),
                         const SizedBox(width: 12),
@@ -979,7 +1118,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       if (item['has_seed_phrase'] == true) ...[
                         IconButton(
                           icon: Icon(Icons.vpn_key, color: AppColors.button),
-                          onPressed: () => _copySeedPhrase(item['seed_phrase'] ?? ''),
+                          onPressed:
+                              () => _copySeedPhrase(item['seed_phrase'] ?? ''),
                           tooltip: 'Копировать seed фразу',
                         ),
                         const SizedBox(width: 12),

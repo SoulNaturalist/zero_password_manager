@@ -64,6 +64,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
   String? errorMessage;
   String? faviconUrl;
   bool isLoadingFavicon = false;
+  bool _obscurePassword = true;
 
   List<Map<String, dynamic>> _folders = [];
   int? _selectedFolderId;
@@ -136,21 +137,30 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
     try {
       await VaultService().addPassword(
         name: site, // Site name or URL
-        url: fullUrl,
+        url: site,
         login: email,
         password: password,
-        notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
+        notes:
+            notesController.text.trim().isNotEmpty
+                ? notesController.text.trim()
+                : null,
         folderId: _selectedFolderId,
+      );
+
+      await PasswordHistoryService.addPasswordHistory(
+        actionType: 'CREATE',
+        actionDetails: {
+          'site_url': site,
+          'site_login': email,
+          'has_2fa': has2FA,
+          'has_seed_phrase': hasSeedPhrase,
+        },
+        siteUrl: site,
       );
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() => errorMessage = 'Ошибка при сохранении: ${e.toString()}');
-    } finally {
-      setState(() => isLoading = false);
-    }
-    } catch (e) {
-      setState(() => errorMessage = 'Ошибка подключения к серверу');
     } finally {
       setState(() => isLoading = false);
     }
@@ -169,8 +179,10 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
 
     try {
       String domain = url.trim();
-      if (domain.startsWith('http://')) domain = domain.substring(7);
-      else if (domain.startsWith('https://')) domain = domain.substring(8);
+      if (domain.startsWith('http://'))
+        domain = domain.substring(7);
+      else if (domain.startsWith('https://'))
+        domain = domain.substring(8);
       if (domain.contains('/')) domain = domain.split('/')[0];
       if (!domain.contains('.') && domain.isNotEmpty) domain = '$domain.com';
       if (url.toLowerCase().contains('metamask')) domain = 'metamask.io';
@@ -194,85 +206,105 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 12),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.text.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 16),
-          NeonText(
-            text: 'Выберите папку',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppColors.text,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // "No folder" option
-          ListTile(
-            leading: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.input,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.folder_off, color: AppColors.text.withOpacity(0.5), size: 20),
-            ),
-            title: Text('Без папки', style: TextStyle(color: AppColors.text)),
-            trailing: _selectedFolderId == null
-                ? Icon(Icons.check, color: AppColors.button)
-                : null,
-            onTap: () {
-              setState(() => _selectedFolderId = null);
-              Navigator.pop(ctx);
-            },
-          ),
-          ..._folders.map((folder) {
-            final color = _colorFromHex(folder['color'] as String? ?? '#5D52D2');
-            final icon = _iconFromName(folder['icon'] as String? ?? 'folder');
-            final isSelected = _selectedFolderId == folder['id'];
-            return ListTile(
-              leading: Container(
+      builder:
+          (ctx) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
                 width: 36,
-                height: 36,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: color.withOpacity(0.4)),
+                  color: AppColors.text.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                child: Icon(icon, color: color, size: 20),
               ),
-              title: Text(folder['name'] as String? ?? '', style: TextStyle(color: AppColors.text)),
-              trailing: isSelected ? Icon(Icons.check, color: AppColors.button) : null,
-              onTap: () {
-                setState(() => _selectedFolderId = folder['id'] as int?);
-                Navigator.pop(ctx);
-              },
-            );
-          }),
-          const SizedBox(height: 16),
-        ],
-      ),
+              const SizedBox(height: 16),
+              NeonText(
+                text: 'Выберите папку',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.text,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // "No folder" option
+              ListTile(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.input,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.folder_off,
+                    color: AppColors.text.withOpacity(0.5),
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  'Без папки',
+                  style: TextStyle(color: AppColors.text),
+                ),
+                trailing:
+                    _selectedFolderId == null
+                        ? Icon(Icons.check, color: AppColors.button)
+                        : null,
+                onTap: () {
+                  setState(() => _selectedFolderId = null);
+                  Navigator.pop(ctx);
+                },
+              ),
+              ..._folders.map((folder) {
+                final color = _colorFromHex(
+                  folder['color'] as String? ?? '#5D52D2',
+                );
+                final icon = _iconFromName(
+                  folder['icon'] as String? ?? 'folder',
+                );
+                final isSelected = _selectedFolderId == folder['id'];
+                return ListTile(
+                  leading: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: color.withOpacity(0.4)),
+                    ),
+                    child: Icon(icon, color: color, size: 20),
+                  ),
+                  title: Text(
+                    folder['name'] as String? ?? '',
+                    style: TextStyle(color: AppColors.text),
+                  ),
+                  trailing:
+                      isSelected
+                          ? Icon(Icons.check, color: AppColors.button)
+                          : null,
+                  onTap: () {
+                    setState(() => _selectedFolderId = folder['id'] as int?);
+                    Navigator.pop(ctx);
+                  },
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
+          ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedFolder = _selectedFolderId != null
-        ? _folders.firstWhere(
-            (f) => f['id'] == _selectedFolderId,
-            orElse: () => <String, dynamic>{},
-          )
-        : null;
+    final selectedFolder =
+        _selectedFolderId != null
+            ? _folders.firstWhere(
+              (f) => f['id'] == _selectedFolderId,
+              orElse: () => <String, dynamic>{},
+            )
+            : null;
 
     return ThemedBackground(
       child: Scaffold(
@@ -282,15 +314,17 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
             text: 'Добавление пароля',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
-              ? AppColors.background
-              : Colors.black.withOpacity(0.3),
+          backgroundColor:
+              ThemeManager.currentTheme == AppTheme.dark
+                  ? AppColors.background
+                  : Colors.black.withOpacity(0.3),
           elevation: 0,
         ),
         body: Container(
-          decoration: ThemeManager.currentTheme != AppTheme.dark
-              ? BoxDecoration(color: Colors.black.withOpacity(0.1))
-              : null,
+          decoration:
+              ThemeManager.currentTheme != AppTheme.dark
+                  ? BoxDecoration(color: Colors.black.withOpacity(0.1))
+                  : null,
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(20.0),
             child: Column(
@@ -298,70 +332,102 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                 ThemedTextField(
                   controller: siteController,
                   hintText: 'Сайт',
-                  prefixIcon: faviconUrl != null
-                      ? Container(
-                          margin: const EdgeInsets.all(8.0),
-                          width: 20,
-                          height: 20,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(4),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 2,
-                                offset: const Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: isLoadingFavicon
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                                    ),
-                                  )
-                                : Image.network(
-                                    faviconUrl!,
-                                    width: 20,
-                                    height: 20,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      width: 20,
-                                      height: 20,
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(4),
+                  prefixIcon:
+                      faviconUrl != null
+                          ? Container(
+                            margin: const EdgeInsets.all(8.0),
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 2,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child:
+                                  isLoadingFavicon
+                                      ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                Colors.grey,
+                                              ),
+                                        ),
+                                      )
+                                      : Image.network(
+                                        faviconUrl!,
+                                        width: 20,
+                                        height: 20,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (_, __, ___) => Container(
+                                              width: 20,
+                                              height: 20,
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.withOpacity(
+                                                  0.2,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: const Icon(
+                                                Icons.language,
+                                                size: 12,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
                                       ),
-                                      child: const Icon(Icons.language, size: 12, color: Colors.grey),
-                                    ),
-                                  ),
-                          ),
-                        )
-                      : const Icon(Icons.language, color: Colors.grey),
+                            ),
+                          )
+                          : const Icon(Icons.language, color: Colors.grey),
                 ),
                 const SizedBox(height: 16),
-                ThemedTextField(
-                  controller: emailController,
-                  hintText: 'Логин',
-                ),
+                ThemedTextField(controller: emailController, hintText: 'Логин'),
                 const SizedBox(height: 16),
                 ThemedTextField(
                   controller: passwordController,
                   hintText: 'Пароль',
-                  obscureText: true,
-                  suffixIcon: IconButton(
-                    icon: isGeneratingPassword
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh),
-                    onPressed: isGeneratingPassword ? null : generatePassword,
+                  obscureText: _obscurePassword,
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: AppColors.text.withOpacity(0.5),
+                        ),
+                        onPressed:
+                            () =>
+                                setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                      ),
+                      IconButton(
+                        icon:
+                            isGeneratingPassword
+                                ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Icon(Icons.refresh),
+                        onPressed:
+                            isGeneratingPassword ? null : generatePassword,
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -385,7 +451,10 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                       borderRadius: BorderRadius.circular(12),
                       onTap: _showFolderPicker,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         child: Row(
                           children: [
                             if (selectedFolder != null &&
@@ -394,14 +463,21 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                                 width: 32,
                                 height: 32,
                                 decoration: BoxDecoration(
-                                  color: _colorFromHex(selectedFolder['color'] as String? ?? '#5D52D2')
-                                      .withOpacity(0.2),
+                                  color: _colorFromHex(
+                                    selectedFolder['color'] as String? ??
+                                        '#5D52D2',
+                                  ).withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Icon(
-                                  _iconFromName(selectedFolder['icon'] as String? ?? 'folder'),
+                                  _iconFromName(
+                                    selectedFolder['icon'] as String? ??
+                                        'folder',
+                                  ),
                                   color: _colorFromHex(
-                                      selectedFolder['color'] as String? ?? '#5D52D2'),
+                                    selectedFolder['color'] as String? ??
+                                        '#5D52D2',
+                                  ),
                                   size: 18,
                                 ),
                               ),
@@ -409,11 +485,18 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                               Expanded(
                                 child: Text(
                                   selectedFolder['name'] as String? ?? '',
-                                  style: TextStyle(color: AppColors.text, fontSize: 15),
+                                  style: TextStyle(
+                                    color: AppColors.text,
+                                    fontSize: 15,
+                                  ),
                                 ),
                               ),
                             ] else ...[
-                              Icon(Icons.folder_open, color: AppColors.text.withOpacity(0.5), size: 22),
+                              Icon(
+                                Icons.folder_open,
+                                color: AppColors.text.withOpacity(0.5),
+                                size: 22,
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
@@ -439,7 +522,10 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
 
                 // ── Toggles ────────────────────────────────────────────────
                 ThemedContainer(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -457,7 +543,10 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                 ),
                 const SizedBox(height: 16),
                 ThemedContainer(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -488,16 +577,20 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
-                    child: Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+                    child: Text(
+                      errorMessage!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ),
                 const SizedBox(height: 16),
                 isLoading
                     ? CircularProgressIndicator(color: AppColors.button)
                     : ThemedElevatedButton(
-                        onPressed: savePassword,
-                        minimumSize: const Size.fromHeight(50),
-                        child: const Text('Сохранить'),
-                      ),
+                      onPressed: savePassword,
+                      minimumSize: const Size.fromHeight(50),
+                      child: const Text('Сохранить'),
+                    ),
+                SizedBox(height: MediaQuery.of(context).padding.bottom + 32),
               ],
             ),
           ),

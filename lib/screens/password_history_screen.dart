@@ -49,19 +49,17 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadHistory,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadHistory),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
               ? _buildErrorWidget()
               : _history.isEmpty
-                  ? _buildEmptyWidget()
-                  : _buildHistoryList(),
+              ? _buildEmptyWidget()
+              : _buildHistoryList(),
     );
   }
 
@@ -78,18 +76,13 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
           const SizedBox(height: 16),
           Text(
             _errorMessage!,
-            style: const TextStyle(
-              color: Colors.red,
-              fontSize: 16,
-            ),
+            style: const TextStyle(color: Colors.red, fontSize: 16),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: _loadHistory,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.button,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.button),
             child: const Text('Повторить'),
           ),
         ],
@@ -102,11 +95,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.history,
-            size: 64,
-            color: Colors.grey.withOpacity(0.7),
-          ),
+          Icon(Icons.history, size: 64, color: Colors.grey.withOpacity(0.7)),
           const SizedBox(height: 16),
           const Text(
             'История пуста',
@@ -119,10 +108,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
           const SizedBox(height: 8),
           const Text(
             'Здесь будут отображаться изменения\nваших паролей',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey, fontSize: 14),
             textAlign: TextAlign.center,
           ),
         ],
@@ -153,9 +139,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
     return Card(
       color: AppColors.input,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -180,7 +164,9 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        PasswordHistoryService.getActionTypeDisplayName(actionType),
+                        PasswordHistoryService.getActionTypeDisplayName(
+                          actionType,
+                        ),
                         style: TextStyle(
                           color: AppColors.text,
                           fontSize: 16,
@@ -200,10 +186,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                 ),
                 Text(
                   PasswordHistoryService.formatDate(actionTime),
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ],
             ),
@@ -214,9 +197,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.grey.withOpacity(0.2),
-                  ),
+                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -233,7 +214,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                     ...actionDetails.entries.map((entry) {
                       final key = entry.key;
                       final value = entry.value;
-                      
+
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Row(
@@ -299,11 +280,11 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
     if (value == null) {
       return 'не указано';
     }
-    
+
     if (value is bool) {
       return value ? 'Да' : 'Нет';
     }
-    
+
     if (value is String) {
       // Скрываем пароли
       if (value.contains('password') || value.contains('Password')) {
@@ -311,7 +292,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
       }
       return value;
     }
-    
+
     return value.toString();
   }
-} 
+}

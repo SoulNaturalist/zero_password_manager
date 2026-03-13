@@ -33,18 +33,25 @@ class ThemedContainer extends StatelessWidget {
         child: ClipRRect(
           borderRadius: borderRad,
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: theme.blurRadius, sigmaY: theme.blurRadius),
+            filter: ImageFilter.blur(
+              sigmaX: theme.blurRadius,
+              sigmaY: theme.blurRadius,
+            ),
             child: Container(
               padding: padding,
               decoration: BoxDecoration(
-                gradient: theme.cardGradient != null
-                    ? LinearGradient(
-                        colors: theme.cardGradient!,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : null,
-                color: theme.cardGradient == null ? theme.input.withOpacity(theme.cardOpacity) : null,
+                gradient:
+                    theme.cardGradient != null
+                        ? LinearGradient(
+                          colors: theme.cardGradient!,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                        : null,
+                color:
+                    theme.cardGradient == null
+                        ? theme.input.withOpacity(theme.cardOpacity)
+                        : null,
                 borderRadius: borderRad,
                 border: Border.all(
                   color: theme.accent.withOpacity(0.2),
@@ -71,41 +78,41 @@ class ThemedContainer extends StatelessWidget {
       margin: margin,
       padding: padding,
       decoration: BoxDecoration(
-        gradient: theme.cardGradient != null
-            ? LinearGradient(
-                colors: theme.cardGradient!,
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : null,
+        gradient:
+            theme.cardGradient != null
+                ? LinearGradient(
+                  colors: theme.cardGradient!,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+                : null,
         color: theme.cardGradient == null ? theme.input : null,
         borderRadius: borderRad,
-        border: theme.hasNeonGlow
-            ? Border.all(
-                color: theme.accent.withOpacity(0.5),
-                width: 1,
-              )
-            : null,
-        boxShadow: theme.hasNeonGlow
-            ? [
-                BoxShadow(
-                  color: theme.accent.withOpacity(0.3),
-                  blurRadius: 10,
-                  spreadRadius: 0,
-                ),
-                BoxShadow(
-                  color: theme.button.withOpacity(0.2),
-                  blurRadius: 20,
-                  spreadRadius: 0,
-                ),
-              ]
-            : [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+        border:
+            theme.hasNeonGlow
+                ? Border.all(color: theme.accent.withOpacity(0.5), width: 1)
+                : null,
+        boxShadow:
+            theme.hasNeonGlow
+                ? [
+                  BoxShadow(
+                    color: theme.accent.withOpacity(0.3),
+                    blurRadius: 10,
+                    spreadRadius: 0,
+                  ),
+                  BoxShadow(
+                    color: theme.button.withOpacity(0.2),
+                    blurRadius: 20,
+                    spreadRadius: 0,
+                  ),
+                ]
+                : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
       ),
       child: child,
     );
@@ -136,35 +143,37 @@ class ThemedButton extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        gradient: theme.buttonGradient != null
-            ? LinearGradient(
-                colors: theme.buttonGradient!,
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : null,
+        gradient:
+            theme.buttonGradient != null
+                ? LinearGradient(
+                  colors: theme.buttonGradient!,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+                : null,
         color: theme.buttonGradient == null ? theme.button : null,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: theme.hasNeonGlow
-            ? [
-                BoxShadow(
-                  color: theme.button.withOpacity(0.4),
-                  blurRadius: 15,
-                  spreadRadius: 0,
-                ),
-                BoxShadow(
-                  color: theme.accent.withOpacity(0.3),
-                  blurRadius: 25,
-                  spreadRadius: 0,
-                ),
-              ]
-            : [
-                BoxShadow(
-                  color: theme.button.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+        boxShadow:
+            theme.hasNeonGlow
+                ? [
+                  BoxShadow(
+                    color: theme.button.withOpacity(0.4),
+                    blurRadius: 15,
+                    spreadRadius: 0,
+                  ),
+                  BoxShadow(
+                    color: theme.accent.withOpacity(0.3),
+                    blurRadius: 25,
+                    spreadRadius: 0,
+                  ),
+                ]
+                : [
+                  BoxShadow(
+                    color: theme.button.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -172,7 +181,9 @@ class ThemedButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: padding ?? const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+            padding:
+                padding ??
+                const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
             child: child,
           ),
         ),
@@ -206,32 +217,42 @@ class ThemedBackground extends StatelessWidget {
     }
 
     if (backgroundImage != null) {
-      return Container(
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage(backgroundImage),
-            fit: BoxFit.cover,
-            colorFilter: theme.backgroundGradient != null
-                ? ColorFilter.mode(
-                    theme.background.withOpacity(0.3),
-                    BlendMode.overlay,
-                  )
-                : null,
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          // Фоновое изображение (повернуто на 180 градусов, так как ассеты перевернуты)
+          RotatedBox(
+            quarterTurns: 2,
+            child: Image.asset(
+              backgroundImage,
+              fit: BoxFit.cover,
+              colorFilter:
+                  theme.backgroundGradient != null
+                      ? ColorFilter.mode(
+                        theme.background.withOpacity(0.3),
+                        BlendMode.overlay,
+                      )
+                      : null,
+            ),
           ),
-        ),
-        child: Container(
-          decoration: theme.backgroundGradient != null
-              ? BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: theme.backgroundGradient!.map((c) => c.withOpacity(0.7)).toList(),
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    stops: const [0.0, 0.5, 1.0],
-                  ),
-                )
-              : null,
-          child: child,
-        ),
+          // Градиентный оверлей
+          if (theme.backgroundGradient != null)
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors:
+                      theme.backgroundGradient!
+                          .map((c) => c.withOpacity(0.7))
+                          .toList(),
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
+            ),
+          // Основной контент
+          child,
+        ],
       );
     }
 
@@ -249,10 +270,7 @@ class ThemedBackground extends StatelessWidget {
       );
     }
 
-    return Container(
-      color: theme.background,
-      child: child,
-    );
+    return Container(color: theme.background, child: child);
   }
 }
 
@@ -280,27 +298,26 @@ class NeonText extends StatelessWidget {
           Text(
             text,
             style: textStyle.copyWith(
-              foreground: Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 3
-                ..color = theme.accent.withOpacity(0.5),
+              foreground:
+                  Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeWidth = 3
+                    ..color = theme.accent.withOpacity(0.5),
             ),
           ),
           // Внутреннее свечение
           Text(
             text,
             style: textStyle.copyWith(
-              foreground: Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 1
-                ..color = theme.button.withOpacity(0.8),
+              foreground:
+                  Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeWidth = 1
+                    ..color = theme.button.withOpacity(0.8),
             ),
           ),
           // Основной текст
-          Text(
-            text,
-            style: textStyle,
-          ),
+          Text(text, style: textStyle),
         ],
       );
     }
@@ -362,15 +379,10 @@ class ThemedTextField extends StatelessWidget {
               maxLines: maxLines,
               enabled: enabled,
               keyboardType: keyboardType,
-              style: TextStyle(
-                color: theme.text,
-                fontSize: 16,
-              ),
+              style: TextStyle(color: theme.text, fontSize: 16),
               decoration: InputDecoration(
                 hintText: hintText,
-                hintStyle: TextStyle(
-                  color: theme.text.withOpacity(0.6),
-                ),
+                hintStyle: TextStyle(color: theme.text.withOpacity(0.6)),
                 prefixIcon: prefixIcon,
                 suffixIcon: suffixIcon,
                 border: InputBorder.none,
@@ -405,9 +417,10 @@ class ThemedTextField extends StatelessWidget {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: theme.hasNeonGlow
-              ? BorderSide(color: theme.accent.withOpacity(0.3))
-              : BorderSide.none,
+          borderSide:
+              theme.hasNeonGlow
+                  ? BorderSide(color: theme.accent.withOpacity(0.3))
+                  : BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -496,13 +509,11 @@ class ThemedElevatedButton extends StatelessWidget {
         backgroundColor: theme.button,
         foregroundColor: Colors.white,
         minimumSize: minimumSize,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: theme.hasNeonGlow ? 8 : 2,
         shadowColor: theme.hasNeonGlow ? theme.button.withOpacity(0.5) : null,
       ),
       child: child,
     );
   }
-} 
+}

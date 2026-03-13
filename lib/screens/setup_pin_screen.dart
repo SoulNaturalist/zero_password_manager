@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'dart:typed_data';
 import 'dart:convert';
 import '../theme/colors.dart';
+import '../services/vault_service.dart';
 
 class SetupPinScreen extends StatefulWidget {
   const SetupPinScreen({super.key});
@@ -13,15 +14,13 @@ class SetupPinScreen extends StatefulWidget {
   State<SetupPinScreen> createState() => _SetupPinScreenState();
 }
 
-class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStateMixin {
+class _SetupPinScreenState extends State<SetupPinScreen>
+    with TickerProviderStateMixin {
   final List<TextEditingController> _controllers = List.generate(
     4,
     (index) => TextEditingController(),
   );
-  final List<FocusNode> _focusNodes = List.generate(
-    4,
-    (index) => FocusNode(),
-  );
+  final List<FocusNode> _focusNodes = List.generate(4, (index) => FocusNode());
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -45,21 +44,16 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
 
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.3),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
 
     _animationController.forward();
 
@@ -146,15 +140,19 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
     try {
       // Store SHA-256 hash of the PIN bytes — never store the plaintext PIN.
       // The verify screen computes the same hash and compares hex strings.
+      final pinString = String.fromCharCodes(_pinBytes);
       final hash = sha256.convert(_pinBytes).toString();
 
-      // Zero out the PIN buffer after hashing
+      // Zero out the PIN buffer after hashing and converting to string
       _pinBytes.fillRange(0, _pinBytes.length, 0);
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('pin_hash', hash);
       // Remove legacy plain-text key if present
       await prefs.remove('pin_code');
+
+      // Persist the Master Key encrypted with the PIN
+      await VaultService().storeMasterKeyWithPin(pinString);
 
       _showSuccessAnimation();
     } catch (e) {
@@ -166,11 +164,7 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
   }
 
   void _showSuccessAnimation() {
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/passwords',
-      (route) => false,
-    );
+    Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
   }
 
   void _goBack() {
@@ -240,7 +234,9 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                   const SizedBox(height: 40),
 
                   Text(
-                    _isConfirming ? 'Подтвердите PIN-код' : 'Установите PIN-код',
+                    _isConfirming
+                        ? 'Подтвердите PIN-код'
+                        : 'Установите PIN-код',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -254,10 +250,7 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                     _isConfirming
                         ? 'Повторите ввод для подтверждения'
                         : 'Создайте 4-значный PIN-код для быстрого доступа',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 16, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
 
@@ -273,9 +266,10 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                           color: AppColors.input,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _focusNodes[index].hasFocus
-                                ? AppColors.button
-                                : Colors.transparent,
+                            color:
+                                _focusNodes[index].hasFocus
+                                    ? AppColors.button
+                                    : Colors.transparent,
                             width: 2,
                           ),
                           boxShadow: [
@@ -305,9 +299,11 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
                           ),
-                          onChanged: (value) => _isConfirming
-                              ? _onConfirmPinChanged()
-                              : _onPinChanged(),
+                          onChanged:
+                              (value) =>
+                                  _isConfirming
+                                      ? _onConfirmPinChanged()
+                                      : _onPinChanged(),
                         ),
                       );
                     }),
@@ -325,16 +321,11 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.red.withOpacity(0.3),
-                        ),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 
@@ -342,17 +333,16 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
 
                   if (_isLoading)
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.button),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.button,
+                      ),
                     ),
 
                   const SizedBox(height: 40),
 
                   const Text(
                     'PIN-код должен содержать 4 цифры',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
 
@@ -369,10 +359,7 @@ class _SetupPinScreenState extends State<SetupPinScreen> with TickerProviderStat
                       },
                       child: const Text(
                         'Пропустить',
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontSize: 16,
-                        ),
+                        style: TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                     ),
                 ],
