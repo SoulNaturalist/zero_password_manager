@@ -41,6 +41,7 @@ class UserCreate(UserBase):
     telegram_chat_id: Optional[str] = None
 
 class UserResponse(UserBase):
+    """Used only for /register — includes one-time TOTP setup fields."""
     id: int
     salt: str  # Client needs salt for KDF
     telegram_chat_id: Optional[str] = None
@@ -57,6 +58,16 @@ class UserResponse(UserBase):
         elif isinstance(data, dict):
             data['has_seed_phrase'] = data.get('seed_phrase_encrypted') is not None
         return data
+
+    class Config:
+        from_attributes = True
+
+
+class ProfileResponse(UserBase):
+    """Used for /profile GET and POST — never exposes totp_secret."""
+    id: int
+    salt: str
+    telegram_chat_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -133,6 +144,9 @@ class PasswordResponse(PasswordBase):
     notes_encrypted: Optional[str] = None
     favicon_url: Optional[str] = None
     folder_id: Optional[int] = None
+    rotation_enabled: bool = False
+    rotation_interval_days: Optional[int] = None
+    last_rotated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -168,8 +182,15 @@ class TOTPSetupResponse(BaseModel):
     otp_uri: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+
 class TOTPConfirmRequest(BaseModel):
-    user_id: Optional[int] = None
     code: str
 
 
@@ -181,3 +202,87 @@ class AuditResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Password Rotation Schemas ─────────────────────────────────────────────────
+
+class RotationConfig(BaseModel):
+    rotation_enabled: bool
+    rotation_interval_days: Optional[int] = None  # None = manual only
+
+
+class RotationUpdate(BaseModel):
+    """Client reports the new encrypted payload after rotating the password."""
+    encrypted_payload: str
+    notes_encrypted: Optional[str] = None
+    encrypted_metadata: Optional[str] = None
+
+
+class RotationDueItem(BaseModel):
+    id: int
+    encrypted_metadata: Optional[str] = None  # client decrypts to find site name
+    rotation_interval_days: Optional[int] = None
+    last_rotated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ── Secure Sharing Schemas ────────────────────────────────────────────────────
+
+class ShareCreate(BaseModel):
+    recipient_login: str
+    encrypted_payload: str              # re-encrypted for recipient by client
+    encrypted_metadata: Optional[Dict[str, Any]] = None
+    label: Optional[str] = None
+    expires_in_days: Optional[int] = None
+
+
+class ShareResponse(BaseModel):
+    id: int
+    owner_id: int
+    recipient_login: str
+    label: Optional[str] = None
+    status: str
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ShareDetailResponse(ShareResponse):
+    encrypted_payload: str
+    encrypted_metadata: Optional[Dict[str, Any]] = None
+
+
+# ── Emergency Access Schemas ──────────────────────────────────────────────────
+
+class EmergencyInvite(BaseModel):
+    grantee_login: str
+    wait_days: int = 7                  # 1–30
+
+
+class EmergencyVaultUpload(BaseModel):
+    encrypted_vault: str                # vault re-encrypted by grantor for grantee
+
+
+class EmergencyAccessResponse(BaseModel):
+    id: int
+    grantor_id: int
+    grantee_id: int
+    grantor_login: Optional[str] = None
+    grantee_login: Optional[str] = None
+    status: str
+    wait_days: int
+    last_checkin_at: Optional[datetime] = None
+    requested_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmergencyVaultResponse(BaseModel):
+    encrypted_vault: str

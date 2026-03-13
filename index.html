@@ -4,6 +4,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Security headers as meta equivalents.
+         'wasm-unsafe-eval' is required by Flutter web (Dart → WebAssembly).
+         Adjust connect-src when pointing at a remote API host. -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' 'wasm-unsafe-eval';
+                   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                   font-src 'self' https://fonts.gstatic.com;
+                   img-src 'self' https://logo.clearbit.com data: assets/;
+                   connect-src 'self';
+                   frame-ancestors 'none';
+                   base-uri 'self';
+                   form-action 'self';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>Zero Password Manager | Absolute Privacy • Self-Hosted • No Cloud</title>
     <meta name="description"
         content="🔐 Zero Password Manager: The premium, privacy-first, self-hosted vault. AES-256-GCM encryption, Cyberpunk UI, and 100% data ownership. No cloud, no tracking.">

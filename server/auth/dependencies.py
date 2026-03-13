@@ -17,8 +17,20 @@ def get_current_user(
     token: str = Depends(_oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """Resolve a Bearer JWT to a User row. Raises 401 on any failure."""
+    """Resolve a Bearer JWT to a User row. Raises 401 on any failure.
+
+    Checks the token blacklist so explicitly revoked tokens (e.g. after
+    /logout) are rejected even before their exp timestamp elapses.
+    """
+    from .. import crud  # local import — avoids circular module dependency
+
     payload = decode_token(token)
+
+    # Reject blacklisted tokens first — before any user DB lookup so that a
+    # stolen token cannot be used after the legitimate owner logs out.
+    jti = payload.get("jti")
+    if jti and crud.is_token_blacklisted(db, jti):
+        raise InvalidCredentials()
 
     user_id = payload.get("sub")
     if not user_id:

@@ -44,5 +44,4 @@ class TOTPSetupResponse(BaseModel):
 
 
 class TOTPConfirmRequest(BaseModel):
-    user_id: Optional[int] = None
     code: str = Field(..., min_length=6, max_length=6, pattern=r'^\d{6}$')
