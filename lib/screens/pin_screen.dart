@@ -298,11 +298,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   Future<void> _authenticateWithBiometrics() async {
     try {
-      final authSecret = await BiometricService.authenticate(
-        reason: 'Подтвердите свою личность для доступа к паролям',
-      );
-      if (authSecret != null) {
-        await VaultService().tryUnlockWithBiometrics();
+      final success = await VaultService().tryUnlockWithBiometrics();
+      if (success) {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:typed_data';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
 import '../utils/passkey_service.dart';
+import '../utils/pin_security.dart';
 import 'package:nk3_zero/utils/api_service.dart';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -61,12 +63,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _checkPinCodeStatus() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final pinHash = prefs.getString('pin_hash');
-      final pinCode = prefs.getString('pin_code');
-
+      final hasPinHash = await PinSecurity.hasPinHash();
       setState(() {
-        _hasPinCode = pinHash != null || pinCode != null;
+        _hasPinCode = hasPinHash;
         _isLoading = false;
       });
     } catch (e) {
@@ -242,6 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await prefs.remove('pin_code');
         await prefs.remove('pin_hash');
 
+        // Clear PIN hash and attempt data from FlutterSecureStorage
+        await PinSecurity.clearPinData();
         // Also clear persistent key since PIN is gone
         await VaultService().clearAllData();
 
@@ -498,14 +499,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleBiometric(bool value) async {
     if (value) {
-      // Включаем биометрическую аутентификацию
+      // Включаем биометрическую аутентификацию — сохраняем мастер-ключ в биометрическое хранилище
       try {
-        final authSecret = await BiometricService.authenticate(
-          reason:
-              'Подтвердите свою личность для включения биометрической аутентификации',
-        );
+        final vault = VaultService();
+        if (vault.isLocked) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                backgroundColor: Colors.orange,
+                content: Text('Хранилище заблокировано. Войдите через PIN для включения биометрии.'),
+              ),
+            );
+          }
+          return;
+        }
 
-        if (authSecret != null) {
+        final keyBytes = await vault.masterKey!.extractBytes();
+        final keyB64 = base64.encode(keyBytes);
+        // Zero raw bytes immediately after encoding
+        (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+
+        final stored = await BiometricService.storeBiometricSecret(keyB64);
+
+        if (stored) {
           await BiometricService.setBiometricEnabled(true);
           setState(() {
             _biometricEnabled = true;

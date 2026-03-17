@@ -14,6 +14,7 @@ import '../services/vault_service.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
 import '../utils/security_utils.dart';
+import '../utils/pin_security.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -153,8 +154,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
 
     if (!mounted) return;
-    final pinHash = prefs.getString('pin_hash');
-    if (pinHash != null) {
+    final hasPinHash = await PinSecurity.hasPinHash();
+    if (hasPinHash) {
       Navigator.pushReplacementNamed(context, '/pin');
     } else {
       Navigator.pushReplacementNamed(context, '/setup-pin');
@@ -181,8 +182,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         await prefs.setString('token', data['access_token']);
 
         if (!mounted) return;
-        final pinHash = prefs.getString('pin_hash');
-        if (pinHash != null) {
+        final hasPinHash = await PinSecurity.hasPinHash();
+        if (hasPinHash) {
           Navigator.pushReplacementNamed(context, '/pin');
         } else {
           Navigator.pushReplacementNamed(context, '/setup-pin');
