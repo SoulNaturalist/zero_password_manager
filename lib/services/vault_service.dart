@@ -99,6 +99,31 @@ class VaultService {
     await _storage.write(key: _storageKey, value: encryptedKey);
   }
 
+  /// Stores master key encrypted with PIN bytes (avoids String creation).
+  /// CWE-256: PIN bytes are never converted to a Dart String.
+  Future<void> storeMasterKeyWithPinBytes(Uint8List pinBytes) async {
+    if (_masterKey == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    String? salt = prefs.getString(_saltKey);
+    if (salt == null) {
+      final rng = Random.secure();
+      final saltBytes = Uint8List.fromList(List.generate(16, (_) => rng.nextInt(256)));
+      salt = base64.encode(saltBytes);
+      await prefs.setString(_saltKey, salt);
+    }
+
+    final pinKey       = await _crypto.deriveMasterKeyFromBytes(pinBytes, salt);
+    final keyBytes     = await _masterKey!.extractBytes();
+    final keyB64       = base64.encode(keyBytes);
+    final encryptedKey = await _crypto.encrypt(pinKey, keyB64);
+
+    (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+    await nativeWipe(keyB64);
+
+    await _storage.write(key: _storageKey, value: encryptedKey);
+  }
+
   Future<bool> unlockWithPin(String pin) async {
     final encryptedKey = await _storage.read(key: _storageKey);
     if (encryptedKey == null) return false;
@@ -109,6 +134,26 @@ class VaultService {
 
     try {
       final pinKey       = await _crypto.deriveMasterKey(pin, salt);
+      final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
+      _masterKey = SecretKey(base64.decode(decryptedB64));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Unlocks vault using raw PIN bytes (avoids String creation).
+  /// CWE-256: PIN never leaves Uint8List form.
+  Future<bool> unlockWithPinBytes(Uint8List pinBytes) async {
+    final encryptedKey = await _storage.read(key: _storageKey);
+    if (encryptedKey == null) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final salt  = prefs.getString(_saltKey);
+    if (salt == null) return false;
+
+    try {
+      final pinKey       = await _crypto.deriveMasterKeyFromBytes(pinBytes, salt);
       final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
       _masterKey = SecretKey(base64.decode(decryptedB64));
       return true;

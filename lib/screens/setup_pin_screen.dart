@@ -1,11 +1,16 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:crypto/crypto.dart';
-import 'dart:typed_data';
 import '../theme/colors.dart';
+import '../utils/pin_security.dart';
 import '../services/vault_service.dart';
 
+/// PIN setup screen.
+///
+/// Security properties:
+///   CWE-922 — PBKDF2 hash stored in FlutterSecureStorage (not SharedPreferences)
+///   CWE-327 — PBKDF2-HMAC-SHA256 with 100k iterations + unique 16-byte salt
+///   CWE-256 — PIN bytes never converted to an immutable Dart String
 class SetupPinScreen extends StatefulWidget {
   const SetupPinScreen({super.key});
 
@@ -25,13 +30,12 @@ class _SetupPinScreenState extends State<SetupPinScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // PIN digits stored as raw bytes (ASCII codes of '0'..'9').
-  // Using Uint8List instead of String so the buffer can be zeroed after use.
-  Uint8List _pinBytes = Uint8List(0);
+  // PIN digits as raw bytes (ASCII codes of '0'..'9') — zeroed after use.
+  Uint8List _pinBytes        = Uint8List(0);
   Uint8List _confirmPinBytes = Uint8List(0);
 
   bool _isConfirming = false;
-  bool _isLoading = false;
+  bool _isLoading    = false;
   String? _errorMessage;
 
   @override
@@ -74,14 +78,11 @@ class _SetupPinScreenState extends State<SetupPinScreen>
       node.dispose();
     }
     _animationController.dispose();
-    // Zero out any residual PIN bytes
     _pinBytes.fillRange(0, _pinBytes.length, 0);
     _confirmPinBytes.fillRange(0, _confirmPinBytes.length, 0);
     super.dispose();
   }
 
-  /// Reads the current controller values into a fresh Uint8List and clears
-  /// the controllers so the digits are no longer held as Strings in TextField state.
   Uint8List _collectAndClearControllers() {
     final bytes = Uint8List(4);
     for (int i = 0; i < 4; i++) {
@@ -97,7 +98,6 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     setState(() => _errorMessage = null);
 
     if (entered.length == 4) {
-      // Collect bytes and immediately clear TextField state
       _pinBytes = _collectAndClearControllers();
       _proceedToConfirm();
     }
@@ -119,7 +119,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
   }
 
   Future<void> _savePin() async {
-    // Constant-time byte comparison to avoid timing side-channels
+    // Constant-time comparison to avoid timing side-channels
     bool match = _pinBytes.length == _confirmPinBytes.length;
     for (int i = 0; i < _pinBytes.length; i++) {
       if (_pinBytes[i] != _confirmPinBytes[i]) match = false;
@@ -127,6 +127,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
     // Zero confirm buffer — no longer needed
     _confirmPinBytes.fillRange(0, _confirmPinBytes.length, 0);
+    _confirmPinBytes = Uint8List(0);
 
     if (!match) {
       setState(() => _errorMessage = 'PIN-коды не совпадают');
@@ -137,21 +138,16 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     setState(() => _isLoading = true);
 
     try {
-      // Store SHA-256 hash of the PIN bytes — never store the plaintext PIN.
-      // The verify screen computes the same hash and compares hex strings.
-      final pinString = String.fromCharCodes(_pinBytes);
-      final hash = sha256.convert(_pinBytes).toString();
+      // 1. Store PBKDF2 hash in FlutterSecureStorage (CWE-922 + CWE-327)
+      //    No String created from PIN bytes (CWE-256).
+      await PinSecurity.storePinHash(_pinBytes);
 
-      // Zero out the PIN buffer after hashing and converting to string
+      // 2. Encrypt master key with PIN bytes — no String creation (CWE-256)
+      await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
+
+      // 3. Zero PIN bytes after all operations
       _pinBytes.fillRange(0, _pinBytes.length, 0);
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('pin_hash', hash);
-      // Remove legacy plain-text key if present
-      await prefs.remove('pin_code');
-
-      // Persist the Master Key encrypted with the PIN
-      await VaultService().storeMasterKeyWithPin(pinString);
+      _pinBytes = Uint8List(0);
 
       _showSuccessAnimation();
     } catch (e) {
@@ -163,17 +159,16 @@ class _SetupPinScreenState extends State<SetupPinScreen>
   }
 
   void _showSuccessAnimation() {
-    Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
+    }
   }
 
   void _goBack() {
     if (_isConfirming) {
-      // Zero out first-entry buffer when going back
       _pinBytes.fillRange(0, _pinBytes.length, 0);
       _pinBytes = Uint8List(0);
-      setState(() {
-        _isConfirming = false;
-      });
+      setState(() => _isConfirming = false);
       _focusNodes[0].requestFocus();
     } else {
       Navigator.pop(context);
@@ -233,9 +228,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                   const SizedBox(height: 40),
 
                   Text(
-                    _isConfirming
-                        ? 'Подтвердите PIN-код'
-                        : 'Установите PIN-код',
+                    _isConfirming ? 'Подтвердите PIN-код' : 'Установите PIN-код',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -265,10 +258,9 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                           color: AppColors.input,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color:
-                                _focusNodes[index].hasFocus
-                                    ? AppColors.button
-                                    : Colors.transparent,
+                            color: _focusNodes[index].hasFocus
+                                ? AppColors.button
+                                : Colors.transparent,
                             width: 2,
                           ),
                           boxShadow: [
@@ -298,11 +290,9 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
                           ),
-                          onChanged:
-                              (value) =>
-                                  _isConfirming
-                                      ? _onConfirmPinChanged()
-                                      : _onPinChanged(),
+                          onChanged: (value) => _isConfirming
+                              ? _onConfirmPinChanged()
+                              : _onPinChanged(),
                         ),
                       );
                     }),
@@ -320,11 +310,13 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                        border:
+                            Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontSize: 14),
+                        style:
+                            const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 
@@ -332,9 +324,8 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
                   if (_isLoading)
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.button,
-                      ),
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(AppColors.button),
                     ),
 
                   const SizedBox(height: 40),

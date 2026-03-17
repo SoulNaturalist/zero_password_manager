@@ -16,6 +16,7 @@ from argon2.low_level import Type as Argon2Type, hash_secret_raw
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -191,7 +192,16 @@ def authenticate_user(db: Session, login: str, password: str):
 
 def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address: Optional[str] = None) -> None:
     """
-    Verify a TOTP code with drift compensation, replay protection (UsedOTP), and account lockout.
+    Verify a TOTP code with drift compensation, atomic replay protection, and account lockout.
+
+    CWE-287 (Replay Attack) fix:
+      Old approach — SELECT then INSERT — had a race condition: two concurrent
+      requests could both pass the SELECT check before either committed the INSERT.
+      New approach:
+        1. Verify OTP mathematically (no DB round-trip for invalid codes).
+        2. If valid, attempt atomic INSERT protected by the UniqueConstraint
+           on (user_id, otp).  The second concurrent request gets IntegrityError
+           and is rejected as OTPReplay — no window for parallel reuse.
     """
     if not user.totp_enabled:
         return
@@ -199,19 +209,14 @@ def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address:
     if not otp:
         raise OTPRequired()
 
-    # Replay protection using UsedOTP model
-    if db.query(UsedOTP).filter_by(user_id=user.id, otp=otp).first():
-        handle_failed_otp_attempt(db, user, ip_address)
-        raise OTPReplay()
-
-    # Drift compensation with ±30 seconds window
+    # ── Step 1: mathematical check (fast path — rejects wrong codes without DB) ──
     totp_secret = decrypt_totp(user.totp_secret, user.id)
-    totp = pyotp.TOTP(totp_secret)
+    totp_obj = pyotp.TOTP(totp_secret)
     valid = False
 
     for offset in [-30, 0, 30]:
         check_time = datetime.now(timezone.utc) + timedelta(seconds=offset)
-        if totp.verify(otp, for_time=check_time, valid_window=1):
+        if totp_obj.verify(otp, for_time=check_time, valid_window=1):
             valid = True
             break
 
@@ -219,9 +224,16 @@ def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address:
         handle_failed_otp_attempt(db, user, ip_address)
         raise OTPInvalid()
 
-    # Сохранение использованного OTP
-    used_otp = UsedOTP(user_id=user.id, otp=otp)
-    db.add(used_otp)
+    # ── Step 2: atomic INSERT — IntegrityError means OTP already used ──
+    try:
+        used_otp = UsedOTP(user_id=user.id, otp=otp)
+        db.add(used_otp)
+        db.flush()  # Raise IntegrityError now, before committing other state
+    except IntegrityError:
+        db.rollback()
+        handle_failed_otp_attempt(db, user, ip_address)
+        raise OTPReplay()
+
     reset_otp_failure_counters(user, db)
     db.commit()
 

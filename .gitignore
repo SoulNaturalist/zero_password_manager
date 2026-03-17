@@ -40,8 +40,14 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android folder
-/android/
+# Android folder — generated files excluded, source committed
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/captures/
+/android/.idea/
+/android/app/.cxx/
 
 # iOS/macOS
 **/ios/**/*.mode1v3

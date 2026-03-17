@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, DateTime, LargeBinary
+from sqlalchemy import Column, Index, Integer, String, Boolean, ForeignKey, JSON, DateTime, LargeBinary, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -84,6 +84,9 @@ class WebAuthnChallenge(Base):
     challenge = Column(String, unique=True, index=True, nullable=False)
     type = Column(String, nullable=False) # 'registration' or 'authentication'
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    # CWE-1073: used flag prevents race-condition re-use of the same challenge
+    used = Column(Boolean, default=False, nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -135,6 +138,12 @@ class Audit(Base):
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
+    # CWE-613: indexes allow O(1) token lookup and efficient revocation checks
+    __table_args__ = (
+        Index('idx_refresh_token_hash', 'token_hash'),
+        Index('idx_refresh_user_revoked', 'user_id', 'revoked'),
+    )
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     token_hash = Column(String, nullable=False)
@@ -165,6 +174,13 @@ class FailedAttempt(Base):
 
 class UsedOTP(Base):
     __tablename__ = "used_otps"
+
+    # CWE-287: unique constraint makes INSERT atomic — concurrent requests using
+    # the same OTP code will get an IntegrityError on the second insert, which
+    # is handled in verify_hardened_otp() to raise OTPReplay.
+    __table_args__ = (
+        UniqueConstraint('user_id', 'otp', name='uq_user_otp'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

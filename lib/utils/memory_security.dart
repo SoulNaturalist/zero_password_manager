@@ -137,7 +137,7 @@ Future<void> copySecureBuffer(SecureBuffer buffer, {
         await Clipboard.setData(const ClipboardData(text: ''));
       }
       // Also notify native to wipe the system's memory of this string
-      await _nativeWipe(text);
+      await nativeWipe(text);
     });
   } finally {
     copy.fillRange(0, copy.length, 0);
@@ -154,6 +154,6 @@ Future<void> copyWithAutoClear(String text, {
     if (current?.text == text) {
       await Clipboard.setData(const ClipboardData(text: ''));
     }
-    await _nativeWipe(text);
+    await nativeWipe(text);
   });
 }
