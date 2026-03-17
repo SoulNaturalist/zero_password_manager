@@ -6,6 +6,7 @@ import 'package:nk3_zero/screens/login_screen.dart';
 import 'package:nk3_zero/screens/pin_screen.dart';
 import 'package:nk3_zero/screens/setup_pin_screen.dart';
 import '../config/app_config.dart';
+import '../utils/pin_security.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -53,7 +54,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _navigateNext() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
-    final pinHash = prefs.getString('pin_hash');
+    final hasPinHash = await PinSecurity.hasPinHash();
 
     if (!mounted) return;
 
@@ -66,7 +67,7 @@ class _SplashScreenState extends State<SplashScreen> {
       MaterialPageRoute(
         builder: (context) {
           if (token != null) {
-            if (pinHash != null) {
+            if (hasPinHash) {
               return const PinScreen();
             } else {
               return const SetupPinScreen();
