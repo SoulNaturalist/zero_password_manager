@@ -46,9 +46,12 @@ class TOTPSetupResponse(BaseModel):
 
 class TOTPConfirmRequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=6, pattern=r'^\d{6}$')
+    mfa_token: Optional[str] = None
 
 
 class LoginPhase1Response(BaseModel):
     requires_mfa: bool
     mfa_token: Optional[str] = None
     salt: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
