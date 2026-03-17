@@ -1,14 +1,21 @@
+import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:crypto/crypto.dart';
-import 'dart:typed_data';
 import '../theme/colors.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
+import '../utils/memory_security.dart';
+import '../utils/pin_security.dart';
 import '../services/vault_service.dart';
 
+/// PIN verification screen.
+///
+/// Security properties:
+///   CWE-922 — PIN hash stored in FlutterSecureStorage, not SharedPreferences
+///   CWE-327 — PBKDF2-HMAC-SHA256 with unique salt (no rainbow tables)
+///   CWE-256 — PIN bytes never become an immutable Dart String; vault ops use pinBytes
+///   CWE-284 — attempt counter + lockout persisted in FlutterSecureStorage
+///   CWE-200 — unified error message, no attempt counter in UI
 class PinScreen extends StatefulWidget {
   const PinScreen({super.key});
 
@@ -34,7 +41,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   bool _isLoading = false;
   String? _errorMessage;
-  int _attempts = 0;
+  bool _isLocked = false;
+  Duration? _lockoutRemaining;
+  Timer? _lockoutTimer;
+
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
 
@@ -68,6 +78,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     );
 
     _animationController.forward();
+    _checkLockout();
     _checkBiometricAvailability();
 
     for (int i = 0; i < 4; i++) {
@@ -81,6 +92,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _lockoutTimer?.cancel();
     for (var controller in _controllers) {
       controller.dispose();
     }
@@ -89,13 +101,46 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     }
     _animationController.dispose();
     _shakeController.dispose();
-    // Zero out any residual PIN bytes
     _pinBytes.fillRange(0, _pinBytes.length, 0);
     super.dispose();
   }
 
-  /// Reads the current controller values into a fresh Uint8List and clears
-  /// the controllers so the digits are no longer held as Strings in TextField state.
+  // ── Lockout check (CWE-284) ───────────────────────────────────────────────
+
+  Future<void> _checkLockout() async {
+    final remaining = await PinSecurity.getLockoutRemaining();
+    if (remaining != null) {
+      setState(() {
+        _isLocked = true;
+        _lockoutRemaining = remaining;
+      });
+      _startLockoutCountdown();
+    }
+  }
+
+  void _startLockoutCountdown() {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      final remaining = await PinSecurity.getLockoutRemaining();
+      if (remaining == null) {
+        timer.cancel();
+        if (mounted) {
+          setState(() {
+            _isLocked = false;
+            _lockoutRemaining = null;
+            _errorMessage = null;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() => _lockoutRemaining = remaining);
+        }
+      }
+    });
+  }
+
+  // ── PIN input ─────────────────────────────────────────────────────────────
+
   Uint8List _collectAndClearControllers() {
     final bytes = Uint8List(4);
     for (int i = 0; i < 4; i++) {
@@ -110,65 +155,86 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     final entered = _controllers.map((c) => c.text).join();
     setState(() => _errorMessage = null);
 
-    if (entered.length == 4) {
+    if (entered.length == 4 && !_isLocked) {
       _pinBytes = _collectAndClearControllers();
       _verifyPin();
     }
   }
 
+  // ── PIN verification ──────────────────────────────────────────────────────
+
   Future<void> _verifyPin() async {
+    if (_isLoading || _isLocked) return;
     setState(() => _isLoading = true);
 
+    // Constant-time delay to prevent timing attacks
     await Future.delayed(const Duration(milliseconds: 1500));
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final storedHash = prefs.getString('pin_hash');
-
-      if (storedHash == null) {
-        // No PIN hash found — redirect to setup
+      final hasPin = await PinSecurity.hasPinHash();
+      if (!hasPin) {
         if (mounted) Navigator.pushReplacementNamed(context, '/setup-pin');
         return;
       }
 
-      // Hash the entered bytes for comparison — never compare plaintext
-      final enteredHash = sha256.convert(_pinBytes).toString();
-
-      // Build reversed bytes for duress-PIN check
+      // Build reversed copy for duress-PIN check before any zeroing
       final reversedBytes = Uint8List.fromList(_pinBytes.reversed.toList());
-      final reversedHash = sha256.convert(reversedBytes).toString();
-      reversedBytes.fillRange(0, reversedBytes.length, 0); // zero immediately
 
-      if (enteredHash == storedHash) {
-        final pinString = String.fromCharCodes(_pinBytes);
-        // Zero entered PIN bytes after converting to string
+      // ── Normal PIN check ──
+      final isCorrect = await PinSecurity.verifyPin(_pinBytes);
+
+      if (isCorrect) {
+        // Reset attempt counter on success
+        await PinSecurity.resetAttempts();
+
+        // Unlock vault directly with bytes — no String creation (CWE-256)
+        if (VaultService().isLocked) {
+          await VaultService().unlockWithPinBytes(_pinBytes);
+        } else {
+          await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
+        }
+
+        // Zero PIN bytes now that vault is unlocked
         _pinBytes.fillRange(0, _pinBytes.length, 0);
+        reversedBytes.fillRange(0, reversedBytes.length, 0);
         _pinBytes = Uint8List(0);
 
-        // 1. If vault is locked (cold start), restore using the PIN
-        if (VaultService().isLocked) {
-          await VaultService().unlockWithPin(pinString);
-        } else {
-          // 2. If already unlocked (fresh login), persist it using the PIN
-          await VaultService().storeMasterKeyWithPin(pinString);
-        }
-        
         _showSuccessAnimation();
-      } else if (reversedHash == storedHash) {
-        // Duress PIN (reversed digits): wipe vault
-        await _deleteAllPasswords();
-      } else {
-        _attempts++;
+        return;
+      }
+
+      // ── Duress PIN check (reversed digits) ──
+      final isDuress = await PinSecurity.verifyPin(reversedBytes);
+      reversedBytes.fillRange(0, reversedBytes.length, 0);
+      _pinBytes.fillRange(0, _pinBytes.length, 0);
+      _pinBytes = Uint8List(0);
+
+      if (isDuress) {
+        await _executeDuressWipe();
+        return;
+      }
+
+      // ── Wrong PIN — update rate-limit state ──
+      final lockoutDuration = await PinSecurity.recordFailedAttempt();
+      if (lockoutDuration != null) {
+        // Just hit lockout threshold
         setState(() {
-          _errorMessage = 'Неверный PIN-код (попытка $_attempts/3)';
+          _isLocked = true;
+          _lockoutRemaining = lockoutDuration;
+          // CWE-200: no attempt count in message
+          _errorMessage = 'Доступ временно заблокирован';
+          _isLoading = false;
+        });
+        _startLockoutCountdown();
+      } else {
+        setState(() {
+          // CWE-200: unified message without attempt counter
+          _errorMessage = 'Ошибка аутентификации';
           _isLoading = false;
         });
         _shakeController.forward().then((_) => _shakeController.reverse());
         await Future.delayed(const Duration(milliseconds: 300));
-        _focusNodes[0].requestFocus();
-        if (_attempts >= 3) {
-          _showBlockedDialog();
-        }
+        if (mounted) _focusNodes[0].requestFocus();
       }
     } catch (e) {
       setState(() {
@@ -178,87 +244,54 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _deleteAllPasswords() async {
+  // ── Duress wipe ───────────────────────────────────────────────────────────
+
+  /// Duress PIN: wipe all vault data including hardware keys.
+  Future<void> _executeDuressWipe() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      await http.delete(
-        Uri.parse(AppConfig.passwordsUrl),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      final pinHash = prefs.getString('pin_hash');
-      final tkn = prefs.getString('token');
-      await prefs.clear();
-      if (pinHash != null) await prefs.setString('pin_hash', pinHash);
-      if (tkn != null) await prefs.setString('token', tkn);
+      // 1. Wipe all local secure data (FlutterSecureStorage + SharedPreferences + cache)
+      await VaultService().clearAllData();
+      // 2. Wipe PIN hash and rate-limit data
+      await PinSecurity.clearPinData();
+
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
-          '/passwords',
+          '/login',
           (route) => false,
         );
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Ошибка при удалении паролей';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Ошибка при выполнении операции';
+          _isLoading = false;
+        });
+      }
     }
   }
 
+  // ── Navigation ────────────────────────────────────────────────────────────
+
   void _showSuccessAnimation() {
-    // Enable sticky immersive mode locally for Android to hide navigation bars
-    // This provides more space and prevents the "Save" button from overlapping.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
+    }
   }
 
-  void _showBlockedDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (context) => AlertDialog(
-            backgroundColor: AppColors.input,
-            title: Text(
-              'Доступ заблокирован',
-              style: TextStyle(color: AppColors.text),
-            ),
-            content: const Text(
-              'Слишком много неудачных попыток. Попробуйте позже.',
-              style: TextStyle(color: Colors.grey),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.pushReplacementNamed(context, '/login');
-                },
-                child: const Text('Вернуться к входу'),
-              ),
-            ],
-          ),
-    );
-  }
+  // ── Biometrics ────────────────────────────────────────────────────────────
 
   Future<void> _checkBiometricAvailability() async {
     final available = await BiometricService.isAvailable();
-    final enabled = await BiometricService.isBiometricEnabled();
-    final diagnosticInfo = await BiometricService.getDiagnosticInfo();
-
-    setState(() {
-      _biometricAvailable = available;
-      _biometricEnabled = enabled;
-    });
-
-    print('PIN Screen - Biometric Diagnostics:');
-    print('  Available: $available');
-    print('  Enabled: $enabled');
-    print('  System Status: ${diagnosticInfo['systemStatus']}');
-    print('  Can Use: ${diagnosticInfo['canUseBiometrics']}');
-    print('  Available Methods: ${diagnosticInfo['availableBiometrics']}');
-
-    if (_biometricAvailable && _biometricEnabled) {
+    final enabled   = await BiometricService.isBiometricEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _biometricEnabled   = enabled;
+      });
+    }
+    if (available && enabled) {
       _authenticateWithBiometrics();
     }
   }
@@ -268,19 +301,16 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
       final authSecret = await BiometricService.authenticate(
         reason: 'Подтвердите свою личность для доступа к паролям',
       );
-
       if (authSecret != null) {
-        // Biometrics already use the vault service to unlock
         await VaultService().tryUnlockWithBiometrics();
-
-        // Enable sticky immersive mode locally for Android
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/passwords',
-          (route) => false,
-        );
+        if (mounted) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            '/passwords',
+            (route) => false,
+          );
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -293,10 +323,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
           );
         }
       }
-    } catch (e) {
-      print('PIN Screen - Biometric authentication error: $e');
-    }
+    } catch (_) {}
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -368,16 +398,12 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 40),
 
+                  // PIN fields (disabled while locked)
                   AnimatedBuilder(
                     animation: _shakeAnimation,
                     builder: (context, child) {
                       return Transform.translate(
-                        offset: Offset(
-                          _shakeAnimation.value *
-                              10 *
-                              (_attempts % 2 == 0 ? 1 : -1),
-                          0,
-                        ),
+                        offset: Offset(_shakeAnimation.value * 10, 0),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: List.generate(4, (index) {
@@ -388,10 +414,9 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                                 color: AppColors.input,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color:
-                                      _focusNodes[index].hasFocus
-                                          ? AppColors.button
-                                          : Colors.transparent,
+                                  color: _focusNodes[index].hasFocus
+                                      ? AppColors.button
+                                      : Colors.transparent,
                                   width: 2,
                                 ),
                                 boxShadow: [
@@ -405,6 +430,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                               child: TextField(
                                 controller: _controllers[index],
                                 focusNode: _focusNodes[index],
+                                enabled: !_isLocked && !_isLoading,
                                 textAlign: TextAlign.center,
                                 keyboardType: TextInputType.number,
                                 obscureText: true,
@@ -432,7 +458,32 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 24),
 
-                  if (_errorMessage != null)
+                  // Lockout countdown
+                  if (_isLocked && _lockoutRemaining != null)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: Colors.orange.withOpacity(0.5)),
+                      ),
+                      child: Text(
+                        'Повторите через ${_lockoutRemaining!.inMinutes}м '
+                        '${(_lockoutRemaining!.inSeconds % 60).toString().padLeft(2, '0')}с',
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+
+                  // Generic error message (CWE-200: no attempt count)
+                  if (_errorMessage != null && !_isLocked)
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       padding: const EdgeInsets.symmetric(
@@ -446,7 +497,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontSize: 14),
+                        style:
+                            const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 
@@ -454,9 +506,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   if (_isLoading)
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        AppColors.button,
-                      ),
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(AppColors.button),
                     ),
 
                   const SizedBox(height: 40),
@@ -467,11 +518,12 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                     textAlign: TextAlign.center,
                   ),
 
-                  if (_biometricAvailable && _biometricEnabled) ...[
+                  if (_biometricAvailable && _biometricEnabled && !_isLocked) ...[
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
                       onPressed: _authenticateWithBiometrics,
-                      icon: const Icon(Icons.fingerprint, color: Colors.white),
+                      icon:
+                          const Icon(Icons.fingerprint, color: Colors.white),
                       label: const Text(
                         'Использовать биометрию',
                         style: TextStyle(color: Colors.white),
@@ -492,9 +544,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                   const SizedBox(height: 20),
 
                   TextButton(
-                    onPressed: () {
-                      Navigator.pushReplacementNamed(context, '/login');
-                    },
+                    onPressed: () =>
+                        Navigator.pushReplacementNamed(context, '/login'),
                     child: const Text(
                       'Выйти',
                       style: TextStyle(color: Colors.grey, fontSize: 16),

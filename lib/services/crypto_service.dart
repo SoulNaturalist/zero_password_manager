@@ -22,6 +22,17 @@ class CryptoService {
     return await pbkdf2.deriveKeyFromPassword(password: password, nonce: salt);
   }
 
+  /// Derives a 256-bit key directly from raw bytes (CWE-256: avoids String creation).
+  Future<SecretKey> deriveMasterKeyFromBytes(List<int> passwordBytes, String saltB64) async {
+    final salt = base64.decode(saltB64);
+    final pbkdf2 = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: 100000,
+      bits: 256,
+    );
+    return await pbkdf2.deriveKey(secretKey: SecretKey(passwordBytes), nonce: salt);
+  }
+
   /// Generates a deterministic site hash (Blind Encryption) using HMAC-SHA256.
   /// Server uses this as the lookup key, never seeing the actual site URL.
   Future<String> computeSiteHash(SecretKey masterKey, String siteUrl) async {
