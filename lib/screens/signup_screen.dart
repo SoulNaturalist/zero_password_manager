@@ -23,7 +23,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
   final _formKey = GlobalKey<FormBuilderState>();
   bool _isLoading = false;
   late AnimationController _shakeController;
-  SecretKey? _masterKey;
 
   @override
   void initState() {

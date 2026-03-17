@@ -38,12 +38,14 @@ class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
     color: HexColor = "#5D52D2"
     icon: FolderIcon = "folder"
+    is_hidden: bool = False
 
 
 class FolderUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=64)
     color: Optional[HexColor] = None
     icon: Optional[FolderIcon] = None
+    is_hidden: Optional[bool] = None
 
 
 class FolderResponse(BaseModel):
@@ -51,6 +53,7 @@ class FolderResponse(BaseModel):
     name: str
     color: str
     icon: str
+    is_hidden: bool = False
     created_at: datetime
     updated_at: datetime
     password_count: int = 0

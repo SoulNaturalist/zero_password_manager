@@ -173,7 +173,7 @@ async def websocket_device_events(websocket: WebSocket, token: str):
         manager.disconnect(user_id)
 
 @app.get("/profile", response_model=schemas.UserResponse)
-def get_profile(current_user: models.User = Depends(auth_deps.get_current_user)):
+def get_profile(request: Request, current_user: models.User = Depends(auth_deps.get_current_user)):
     """Get current user profile info."""
     # We need to explicitly set the password_count since it's not in the DB model directly
     # as a simple column but we want it in the response.
@@ -341,6 +341,26 @@ def create_password(request: Request,
     return new_pwd
 
 
+@app.get("/passwords/search/{query}", response_model=List[schemas.PasswordResponse])
+@limiter.limit("60/minute")
+def search_passwords(request: Request,
+                    query: str,
+                    background_tasks: BackgroundTasks,
+                    current_user: models.User = Depends(auth_deps.get_current_user),
+                    db: Session = Depends(get_db)):
+    # OTP-Gated if configured
+    if "vault_read" in settings.PERMISSIONS_OTP_LIST:
+        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"), background_tasks=background_tasks)
+    
+    results = crud.search_passwords(db, query=query, user_id=current_user.id, background_tasks=background_tasks)
+    for p in results:
+        site_url = getattr(p, 'site_url', None)
+        if site_url:
+            p.favicon_url = get_favicon_url(site_url)
+            
+    return results
+
+
 @app.post("/import-passwords",
           response_model=List[schemas.PasswordResponse],
           status_code=status.HTTP_201_CREATED)
@@ -406,7 +426,8 @@ def delete_password(request: Request,
 
 @app.get("/folders", response_model=List[schemas.FolderResponse])
 @limiter.limit("30/minute")
-def read_folders(current_user: models.User = Depends(auth_deps.get_current_user),
+def read_folders(request: Request,
+                 current_user: models.User = Depends(auth_deps.get_current_user),
                  db: Session = Depends(get_db)):
     return crud.get_folders(db, user_id=current_user.id)
 
@@ -426,7 +447,8 @@ def create_folder(request: Request,
 
 @app.put("/folders/{folder_id}", response_model=schemas.FolderResponse)
 @limiter.limit("10/minute")
-def update_folder(folder_id: int,
+def update_folder(request: Request,
+                  folder_id: int,
                   folder: schemas.FolderUpdate,
                   current_user: models.User = Depends(auth_deps.get_current_user),
                   db: Session = Depends(get_db)):
@@ -445,7 +467,8 @@ def update_folder(folder_id: int,
 
 @app.delete("/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("10/minute")
-def delete_folder(folder_id: int,
+def delete_folder(request: Request,
+                  folder_id: int,
                   current_user: models.User = Depends(auth_deps.get_current_user),
                   db: Session = Depends(get_db)):
     crud.delete_folder(db, folder_id=folder_id, user_id=current_user.id)

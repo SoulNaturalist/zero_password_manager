@@ -12,7 +12,7 @@ class SecurityUtils {
       "isRealDevice": await SafeDevice.isRealDevice,
       "isJailBroken": await SafeDevice.isJailBroken,
       "isSafeDevice": await SafeDevice.isSafeDevice,
-      "canMockLocation": await SafeDevice.canMockLocation,
+      "isMockLocation": await SafeDevice.isMockLocation,
       "onExternalStorage": await SafeDevice.isOnExternalStorage,
     };
 

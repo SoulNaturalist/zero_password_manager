@@ -198,6 +198,18 @@ def get_passwords(db: Session, user_id: int, background_tasks: BackgroundTasks =
     return db.query(models.Password).filter(models.Password.user_id == user_id).all()
 
 
+def search_passwords(db: Session, query: str, user_id: int, background_tasks: BackgroundTasks = None):
+    """
+    Search for passwords by site_hash or metadata.
+    Strictly filters by user_id to prevent IDOR.
+    """
+    audit_event(db, user_id, "vault_search", meta={"query_length": len(query)}, background_tasks=background_tasks)
+    return db.query(models.Password).filter(
+        models.Password.user_id == user_id,
+        models.Password.site_hash.ilike(f"%{query}%")
+    ).all()
+
+
 def create_password(db: Session, password: schemas.PasswordCreate, user_id: int, background_tasks: BackgroundTasks = None):
     # ... (folder ownership check)
     if password.folder_id is not None:

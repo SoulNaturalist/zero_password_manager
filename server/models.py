@@ -40,6 +40,7 @@ class Folder(Base):
     name = Column(String, nullable=False)
     color = Column(String, nullable=False, default="#5D52D2")  # Hex color
     icon = Column(String, nullable=False, default="folder")   # Icon name
+    is_hidden = Column(Boolean, nullable=False, default=False)  # Hidden folders require TOTP to reveal
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

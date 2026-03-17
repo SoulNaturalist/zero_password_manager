@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../config/app_config.dart';
 import '../utils/api_service.dart';
+import '../utils/memory_security.dart';
 import '../utils/password_history_service.dart';
 import '../utils/folder_service.dart';
 import '../services/vault_service.dart';
@@ -62,6 +64,8 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
 
   bool isLoading = false;
   bool isGeneratingPassword = false;
+  bool _isDecryptingPassword = false;
+  bool _passwordDecrypted = false;
   bool has2FA = false;
   bool hasSeedPhrase = false;
   String? errorMessage;
@@ -75,54 +79,53 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
   @override
   void initState() {
     super.initState();
-    siteController.text = widget.password['title'] ?? '';
-    emailController.text = widget.password['subtitle'] ?? '';
+    siteController.text  = widget.password['site_url']  ?? widget.password['title']    ?? '';
+    emailController.text = widget.password['subtitle']  ?? widget.password['site_login'] ?? '';
 
-    // Decrypt sensitive fields for editing
-    _decryptInitialValues();
-
-    has2FA = widget.password['has_2fa'] ?? false;
-    hasSeedPhrase = widget.password['has_seed_phrase'] ?? false;
-    _selectedFolderId = widget.password['folder_id'] as int?;
+    // Do NOT decrypt password here — decrypt lazily when user taps the field
+    has2FA      = widget.password['has_2fa']        as bool? ?? false;
+    hasSeedPhrase = widget.password['has_seed_phrase'] as bool? ?? false;
+    _selectedFolderId = widget.password['folder_id']  as int?;
 
     if (siteController.text.isNotEmpty) _loadFavicon(siteController.text);
     siteController.addListener(() => _loadFavicon(siteController.text));
     _loadFolders();
   }
 
-  Future<void> _decryptInitialValues() async {
+  /// Lazily decrypt the password field only when the user taps it.
+  /// Keeps plaintext out of memory until actually needed for editing.
+  Future<void> _loadDecryptedPassword() async {
+    if (_passwordDecrypted) return;
+    setState(() => _isDecryptingPassword = true);
+
     try {
-      if (widget.password['password'] != null) {
-        passwordController.text = await VaultService().decryptPayload(
-          widget.password['password'],
-        );
+      final encPayload = widget.password['encrypted_payload'] as String?;
+      final encNotes   = widget.password['notes_encrypted']   as String?;
+      final encSeed    = widget.password['seed_phrase_encrypted'] as String?;
+
+      if (encPayload != null) {
+        passwordController.text = await VaultService().decryptPayload(encPayload);
       }
-      if (widget.password['notes_encrypted'] != null) {
-        notesController.text = await VaultService().decryptPayload(
-          widget.password['notes_encrypted'],
-        );
+      if (encNotes != null) {
+        notesController.text = await VaultService().decryptPayload(encNotes);
       }
-      if (widget.password['seed_phrase_encrypted'] != null) {
-        seedPhraseController.text = await VaultService().decryptPayload(
-          widget.password['seed_phrase_encrypted'],
-        );
-      } else if (widget.password['seed_phrase'] != null) {
-        // Handle legacy unencrypted seed_phrase if any (not expected in ZK branch)
-        seedPhraseController.text = widget.password['seed_phrase'];
+      if (encSeed != null) {
+        seedPhraseController.text = await VaultService().decryptPayload(encSeed);
       }
+      if (mounted) setState(() => _passwordDecrypted = true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка дешифрования данных: ${e.toString()}'),
-          ),
-        );
-      }
+      if (mounted) setState(() => errorMessage = 'Ошибка дешифрования: $e');
+    } finally {
+      if (mounted) setState(() => _isDecryptingPassword = false);
     }
   }
 
   @override
   void dispose() {
+    // Best-effort wipe of sensitive controllers before releasing
+    unawaited(wipeController(passwordController));
+    unawaited(wipeController(seedPhraseController));
+    unawaited(wipeController(notesController));
     siteController.dispose();
     emailController.dispose();
     passwordController.dispose();
@@ -136,56 +139,23 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     if (mounted) setState(() => _folders = folders);
   }
 
+  /// Generates a cryptographically secure password using [Random.secure()].
   Future<void> generatePassword() async {
-    setState(() {
-      isGeneratingPassword = true;
-      errorMessage = null;
-    });
+    setState(() { isGeneratingPassword = true; errorMessage = null; });
 
     try {
-      // Client-side password generation
-      final password = _generatePassword(24);
-      setState(() => passwordController.text = password);
+      // Ensure password field is decrypted before overwriting
+      if (!_passwordDecrypted) await _loadDecryptedPassword();
+      final password = generateSecurePassword(length: 24);
+      setState(() {
+        passwordController.text = password;
+        _obscurePassword = false;
+      });
     } catch (e) {
       setState(() => errorMessage = 'Ошибка генерации пароля');
     } finally {
       setState(() => isGeneratingPassword = false);
     }
-  }
-
-  String _generatePassword(int length) {
-    if (length < 14) length = 24;
-    
-    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const lower = 'abcdefghijklmnopqrstuvwxyz';
-    const digits = '0123456789';
-    const symbols = '!@#\$%^&*()_+-=';
-    
-    final allChars = upper + lower + digits + symbols;
-    
-    // Ensure at least one of each character type
-    final password = <String>[
-      upper[_randomInt(upper.length)],
-      lower[_randomInt(lower.length)],
-      digits[_randomInt(digits.length)],
-      symbols[_randomInt(symbols.length)],
-    ];
-    
-    // Fill the rest randomly
-    for (int i = 4; i < length; i++) {
-      password.add(allChars[_randomInt(allChars.length)]);
-    }
-    
-    // Shuffle to avoid predictable pattern
-    password.shuffle();
-    
-    return password.join();
-  }
-
-  int _randomInt(int max) {
-    // Use a simple pseudo-random generator for client-side generation
-    final now = DateTime.now().microsecondsSinceEpoch;
-    return (now % max).abs();
   }
 
   Future<void> savePassword() async {
@@ -207,7 +177,6 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       final siteId = widget.password['id'];
       if (siteId == null) throw Exception("Missing password ID");
 
-      final String fullUrl = AppConfig.getPasswordUrl(siteId.toString());
 
       await VaultService().updatePassword(
         id: siteId,
@@ -584,41 +553,44 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
                 const SizedBox(height: 16),
                 ThemedTextField(controller: emailController, hintText: 'Логин'),
                 const SizedBox(height: 16),
-                ThemedTextField(
-                  controller: passwordController,
-                  hintText: 'Пароль',
-                  obscureText: _obscurePassword,
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: AppColors.text.withOpacity(0.5),
-                        ),
-                        onPressed:
-                            () =>
-                                setState(
-                                  () => _obscurePassword = !_obscurePassword,
-                                ),
-                      ),
-                      IconButton(
-                        icon:
-                            isGeneratingPassword
+                GestureDetector(
+                  onTap: _passwordDecrypted ? null : _loadDecryptedPassword,
+                  child: AbsorbPointer(
+                    absorbing: !_passwordDecrypted,
+                    child: ThemedTextField(
+                      controller: passwordController,
+                      hintText: _isDecryptingPassword ? 'Дешифровка...' : 'Пароль',
+                      obscureText: _obscurePassword,
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_isDecryptingPassword)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: SizedBox(width: 18, height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          else
+                            IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                color: AppColors.text.withOpacity(0.5),
+                              ),
+                              onPressed: _passwordDecrypted
+                                  ? () => setState(() => _obscurePassword = !_obscurePassword)
+                                  : null,
+                            ),
+                          IconButton(
+                            icon: isGeneratingPassword
                                 ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
+                                    width: 20, height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2))
                                 : const Icon(Icons.refresh),
-                        onPressed:
-                            isGeneratingPassword ? null : generatePassword,
+                            onPressed: isGeneratingPassword ? null : generatePassword,
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),

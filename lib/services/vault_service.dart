@@ -1,14 +1,15 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/api_service.dart';
 import '../utils/biometric_service.dart';
+import '../utils/memory_security.dart';
 import 'crypto_service.dart';
 import 'cache_service.dart';
 import '../config/app_config.dart';
-import 'dart:convert';
-import 'dart:typed_data';
 
 class VaultService {
   static final VaultService _instance = VaultService._internal();
@@ -17,98 +18,54 @@ class VaultService {
 
   SecretKey? _masterKey;
   final _crypto = CryptoService();
-  final _cache = CacheService();
+  final _cache  = CacheService();
   final _storage = const FlutterSecureStorage();
 
   static const _storageKey = 'encrypted_master_key';
-  static const _saltKey = 'master_key_salt';
+  static const _saltKey    = 'master_key_salt';
 
-  /// Generates a random 16-byte salt for key derivation.
-  static String generateRandomSalt() {
-    final random = Random.secure();
-    final bytes = Uint8List.fromList(List.generate(16, (_) => random.nextInt(256)));
-    return base64.encode(bytes);
-  }
+  // ── Key state ────────────────────────────────────────────────────────────────
 
-  /// Static helper for generating a master key (matching user template).
-  static Future<SecretKey> generateMasterKey(String password, String salt) async {
-    return await CryptoService().deriveMasterKey(password, salt);
-  }
-
-  /// Static helper for saving a master key (matching user template).
-  /// Note: Real implementation might prefer PIN-based storage call.
-  static Future<void> saveMasterKey(SecretKey masterKey) async {
-    VaultService().setKey(masterKey);
-    // Note: To persist this between sessions, storeMasterKeyWithPin must be called later.
-  }
-
+  SecretKey? get masterKey => _masterKey;
   bool get isLocked => _masterKey == null;
 
-  void setKey(SecretKey key) {
-    _masterKey = key;
-  }
+  void setKey(SecretKey key) => _masterKey = key;
 
   void lock() {
     _masterKey = null;
     _cache.clearCache();
   }
 
-  /// Encrypts and stores the master key using a key derived from the PIN.
-  Future<void> storeMasterKeyWithPin(String pin) async {
-    if (_masterKey == null) return;
+  // ── Static helpers (kept for compatibility with login screens) ───────────────
 
-    // Use a unique salt for PIN-based encryption
-    final prefs = await SharedPreferences.getInstance();
-    String? salt = prefs.getString(_saltKey);
-    if (salt == null) {
-      final random = Uint8List(16);
-      // In a real app, use a proper CSPRNG.
-      // cryptography's Pbkdf2 takes a nonce/salt.
-      salt = base64.encode(DateTime.now().toIso8601String().codeUnits.take(16).toList());
-      await prefs.setString(_saltKey, salt);
-    }
-
-    final pinKey = await _crypto.deriveMasterKey(pin, salt);
-    final keyBytes = await _masterKey!.extractBytes();
-    final encryptedKey = await _crypto.encrypt(pinKey, base64.encode(keyBytes));
-
-    await _storage.write(key: _storageKey, value: encryptedKey);
+  static String generateRandomSalt() {
+    final rng   = Random.secure();
+    final bytes = Uint8List.fromList(List.generate(16, (_) => rng.nextInt(256)));
+    return base64.encode(bytes);
   }
 
-  /// Restores the master key using the PIN.
-  Future<bool> unlockWithPin(String pin) async {
-    final encryptedKey = await _storage.read(key: _storageKey);
-    if (encryptedKey == null) return false;
+  static Future<SecretKey> generateMasterKey(String password, String salt) async =>
+      CryptoService().deriveMasterKey(password, salt);
 
-    final prefs = await SharedPreferences.getInstance();
-    final salt = prefs.getString(_saltKey);
-    if (salt == null) return false;
+  static Future<void> saveMasterKey(SecretKey masterKey) async =>
+      VaultService().setKey(masterKey);
 
-    try {
-      final pinKey = await _crypto.deriveMasterKey(pin, salt);
-      final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
-      _masterKey = SecretKey(base64.decode(decryptedB64));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
+  // ── Unlock / lock ────────────────────────────────────────────────────────────
 
-  /// Derives the master key and unlocks the vault.
+  /// Derives master key from password+salt. Stores in biometric storage if enabled.
   Future<void> unlock(String password, String salt) async {
     _masterKey = await _crypto.deriveMasterKey(password, salt);
 
-    // If biometrics are enabled, store the master key securely
     if (await BiometricService.isBiometricEnabled()) {
       final keyBytes = await _masterKey!.extractBytes();
       await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+      // Wipe extracted bytes immediately after use
+      (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
     }
   }
 
-  /// Attempts to unlock the vault using stored biometrics.
   Future<bool> tryUnlockWithBiometrics() async {
     if (!await BiometricService.isBiometricEnabled()) return false;
-
     final secretB64 = await BiometricService.authenticate();
     if (secretB64 != null) {
       _masterKey = SecretKey(base64.decode(secretB64));
@@ -117,50 +74,117 @@ class VaultService {
     return false;
   }
 
-  /// Securely clears all vault-related data (for logout).
+  Future<void> storeMasterKeyWithPin(String pin) async {
+    if (_masterKey == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    String? salt = prefs.getString(_saltKey);
+    if (salt == null) {
+      final rng = Random.secure();
+      final saltBytes = Uint8List.fromList(List.generate(16, (_) => rng.nextInt(256)));
+      salt = base64.encode(saltBytes);
+      await prefs.setString(_saltKey, salt);
+    }
+
+    final pinKey      = await _crypto.deriveMasterKey(pin, salt);
+    final keyBytes    = await _masterKey!.extractBytes();
+    final keyB64      = base64.encode(keyBytes);
+    final encryptedKey = await _crypto.encrypt(pinKey, keyB64);
+
+    // Wipe key bytes after encryption
+    (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+    // Native wipe of temporary base64 string
+    await nativeWipe(keyB64);
+
+    await _storage.write(key: _storageKey, value: encryptedKey);
+  }
+
+  Future<bool> unlockWithPin(String pin) async {
+    final encryptedKey = await _storage.read(key: _storageKey);
+    if (encryptedKey == null) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final salt  = prefs.getString(_saltKey);
+    if (salt == null) return false;
+
+    try {
+      final pinKey       = await _crypto.deriveMasterKey(pin, salt);
+      final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
+      _masterKey = SecretKey(base64.decode(decryptedB64));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> clearAllData() async {
-    // 1. Clear in-memory state
     lock();
 
-    // 2. Clear SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     await prefs.remove('pin_hash');
-    await prefs.remove('pin_code'); // Legacy cleanup
+    await prefs.remove('pin_code');
     await prefs.remove(_saltKey);
 
-    // 3. Clear Secure Storage
     await _storage.delete(key: _storageKey);
-    await _storage.deleteAll(); // Safety net
+    await _storage.deleteAll();
 
-    // 4. Clear Cache
     await _cache.clearCache();
-
-    // 5. Reset Biometrics
     await BiometricService.resetBiometricSettings();
   }
 
-  /// Fetches all passwords from the server, decrypts them, and updates the local cache.
-  Future<List<Map<String, dynamic>>> syncVault() async {
-    if (_masterKey == null) throw Exception("Vault is locked");
+  // ── Password list — METADATA ONLY (no payload ever decrypted here) ───────────
+
+  /// Fetches all passwords and decrypts ONLY metadata (name, login, site_url).
+  /// The `encrypted_payload` field is preserved as-is for on-demand decryption.
+  /// No plaintext password is ever held in the returned list.
+  Future<List<Map<String, dynamic>>> loadPasswordList() async {
+    if (_masterKey == null) throw Exception('Vault is locked');
 
     final response = await ApiService.get(AppConfig.passwordsUrl);
-    if (response.statusCode != 200)
-      throw Exception("Failed to fetch passwords");
+    if (response.statusCode != 200) throw Exception('Failed to fetch passwords');
 
-    final List<dynamic> encryptedList = json.decode(response.body);
-    final List<Map<String, dynamic>> decryptedList = [];
+    final rawList = json.decode(response.body) as List<dynamic>;
+    final result  = <Map<String, dynamic>>[];
 
-    for (var item in encryptedList) {
-      final decrypted = await _decryptPasswordItem(item);
-      decryptedList.add(decrypted);
+    for (final item in rawList) {
+      result.add(await _decryptMetadataOnly(item as Map<String, dynamic>));
     }
 
-    await _cache.cacheAll(decryptedList);
-    return decryptedList;
+    return result;
   }
 
-  /// Adds a new password item. Encrypts data before sending it to the server.
+  /// Fetches a single password entry and decrypts its metadata only.
+  /// Returns the entry with `encrypted_payload` intact for lazy decryption.
+  Future<Map<String, dynamic>> loadSingleEntry(int id) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+
+    final response = await ApiService.get('${AppConfig.passwordsUrl}/$id');
+    if (response.statusCode != 200) throw Exception('Entry not found');
+
+    return await _decryptMetadataOnly(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  // ── Payload decryption (on-demand only) ──────────────────────────────────────
+
+  /// Decrypts a payload into a [SecureBuffer].
+  /// **Caller MUST call [SecureBuffer.wipe] when done with the data.**
+  Future<SecureBuffer> decryptPayloadSecure(String encryptedB64) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+    final plaintext = await _crypto.decrypt(_masterKey!, encryptedB64);
+    return SecureBuffer.fromBytes(plaintext.codeUnits);
+  }
+
+  /// Decrypts a payload to a plain String (use only for edit/save — not display).
+  Future<String> decryptPayload(String encryptedB64) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+    return await _crypto.decrypt(_masterKey!, encryptedB64);
+  }
+
+  // ── Write operations ─────────────────────────────────────────────────────────
+
   Future<void> addPassword({
     required String name,
     required String url,
@@ -170,82 +194,31 @@ class VaultService {
     String? seedPhrase,
     int? folderId,
   }) async {
-    if (_masterKey == null) throw Exception("Vault is locked");
+    if (_masterKey == null) throw Exception('Vault is locked');
 
-    final siteHash = await _crypto.computeSiteHash(_masterKey!, url);
+    final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
+    final encMeta       = await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name});
+    final encPayload    = await _crypto.encrypt(_masterKey!, password);
+    final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
+    final encSeed       = seedPhrase  != null ? await _crypto.encrypt(_masterKey!, seedPhrase)  : null;
 
-    final metadata = {'site_url': url, 'site_login': login, 'name': name};
+    final response = await ApiService.post(AppConfig.passwordsUrl, body: {
+      'site_hash':              siteHash,
+      'encrypted_metadata':     encMeta,
+      'encrypted_payload':      encPayload,
+      'notes_encrypted':        encNotes,
+      'seed_phrase_encrypted':  encSeed,
+      'folder_id':              folderId,
+    });
+    
+    // Wipe transient plaintext strings
+    await nativeWipe(password);
+    if (notes != null) await nativeWipe(notes);
+    if (seedPhrase != null) await nativeWipe(seedPhrase);
 
-    final encryptedMetadata = await _crypto.encryptMetadata(
-      _masterKey!,
-      metadata,
-    );
-    final encryptedPayload = await _crypto.encrypt(_masterKey!, password);
-    final encryptedNotes =
-        notes != null ? await _crypto.encrypt(_masterKey!, notes) : null;
-    final encryptedSeed =
-        seedPhrase != null
-            ? await _crypto.encrypt(_masterKey!, seedPhrase)
-            : null;
-
-    final body = {
-      'site_hash': siteHash,
-      'encrypted_metadata': encryptedMetadata,
-      'encrypted_payload': encryptedPayload,
-      'notes_encrypted': encryptedNotes,
-      'seed_phrase_encrypted': encryptedSeed, // Updated field name
-      'folder_id': folderId,
-    };
-
-    final response = await ApiService.post(AppConfig.passwordsUrl, body: body);
-    if (response.statusCode != 201) throw Exception("Failed to save password");
-
-    // Cache locally as well
-    final newPassword = json.decode(response.body);
-    await _cache.cachePassword(siteHash, newPassword);
+    if (response.statusCode != 201) throw Exception('Failed to save password');
   }
 
-  /// Bulk imports passwords after client-side encryption.
-  Future<void> importPasswordsBatch(List<Map<String, String>> entries) async {
-    if (_masterKey == null) throw Exception("Vault is locked");
-
-    final List<Map<String, dynamic>> encryptedItems = [];
-
-    for (var entry in entries) {
-      final url = entry['url'] ?? '';
-      final login = entry['username'] ?? '';
-      final password = entry['password'] ?? '';
-      final name = url.isNotEmpty ? url : (login.isNotEmpty ? login : "Imported");
-
-      final siteHash = await _crypto.computeSiteHash(_masterKey!, url);
-      final metadata = {'site_url': url, 'site_login': login, 'name': name};
-
-      final encryptedMetadata = await _crypto.encryptMetadata(_masterKey!, metadata);
-      final encryptedPayload = await _crypto.encrypt(_masterKey!, password);
-
-      encryptedItems.add({
-        'site_hash': siteHash,
-        'encrypted_metadata': encryptedMetadata,
-        'encrypted_payload': encryptedPayload,
-        'has_2fa': false,
-        'has_seed_phrase': false,
-      });
-    }
-
-    final response = await ApiService.post(
-      AppConfig.importPasswordsUrl,
-      body: {'items': encryptedItems},
-    );
-
-    if (response.statusCode != 201) {
-      throw Exception("Failed to import passwords: ${response.body}");
-    }
-
-    // Clear cache to force re-sync after bulk import
-    await _cache.clearCache();
-  }
-
-  /// Updates an existing password item.
   Future<void> updatePassword({
     required int id,
     required String name,
@@ -256,69 +229,82 @@ class VaultService {
     String? seedPhrase,
     int? folderId,
   }) async {
-    if (_masterKey == null) throw Exception("Vault is locked");
+    if (_masterKey == null) throw Exception('Vault is locked');
 
-    final siteHash = await _crypto.computeSiteHash(_masterKey!, url);
+    final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
+    final encMeta       = await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name});
+    final encPayload    = await _crypto.encrypt(_masterKey!, password);
+    final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
+    final encSeed       = seedPhrase  != null ? await _crypto.encrypt(_masterKey!, seedPhrase)  : null;
 
-    final metadata = {'site_url': url, 'site_login': login, 'name': name};
+    final response = await ApiService.put('${AppConfig.passwordsUrl}/$id', body: {
+      'site_hash':              siteHash,
+      'encrypted_metadata':     encMeta,
+      'encrypted_payload':      encPayload,
+      'notes_encrypted':        encNotes,
+      'seed_phrase_encrypted':  encSeed,
+      'folder_id':              folderId,
+    });
 
-    final encryptedMetadata = await _crypto.encryptMetadata(
-      _masterKey!,
-      metadata,
-    );
-    final encryptedPayload = await _crypto.encrypt(_masterKey!, password);
-    final encryptedNotes =
-        notes != null ? await _crypto.encrypt(_masterKey!, notes) : null;
-    final encryptedSeed =
-        seedPhrase != null
-            ? await _crypto.encrypt(_masterKey!, seedPhrase)
-            : null;
+    // Wipe transient plaintext strings
+    await nativeWipe(password);
+    if (notes != null) await nativeWipe(notes);
+    if (seedPhrase != null) await nativeWipe(seedPhrase);
 
-    final body = {
-      'site_hash': siteHash,
-      'encrypted_metadata': encryptedMetadata,
-      'encrypted_payload': encryptedPayload,
-      'notes_encrypted': encryptedNotes,
-      'seed_phrase_encrypted': encryptedSeed,
-      'folder_id': folderId,
-    };
-
-    final response = await ApiService.put(
-      '${AppConfig.passwordsUrl}/$id',
-      body: body,
-    );
-    if (response.statusCode != 200)
-      throw Exception("Failed to update password");
-
-    // Update local cache
-    final updatedPassword = json.decode(response.body);
-    await _cache.cachePassword(siteHash, updatedPassword);
+    if (response.statusCode != 200) throw Exception('Failed to update password');
   }
 
-  Future<Map<String, dynamic>> _decryptPasswordItem(
+  Future<void> importPasswordsBatch(List<Map<String, String>> entries) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+
+    final items = <Map<String, dynamic>>[];
+    for (final entry in entries) {
+      final url   = entry['url'] ?? '';
+      final login = entry['username'] ?? '';
+      final pwd   = entry['password'] ?? '';
+      final name  = url.isNotEmpty ? url : (login.isNotEmpty ? login : 'Imported');
+
+      items.add({
+        'site_hash':          await _crypto.computeSiteHash(_masterKey!, url),
+        'encrypted_metadata': await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name}),
+        'encrypted_payload':  await _crypto.encrypt(_masterKey!, pwd),
+        'has_2fa':            false,
+        'has_seed_phrase':    false,
+      });
+    }
+
+    final response = await ApiService.post(AppConfig.importPasswordsUrl, body: {'items': items});
+    if (response.statusCode != 201) throw Exception('Failed to import: ${response.body}');
+    await _cache.clearCache();
+  }
+
+  // ── Private ─────────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> _decryptMetadataOnly(
     Map<String, dynamic> item,
   ) async {
-    if (_masterKey == null) return item;
+    final entry = Map<String, dynamic>.from(item);
+
+    // Strip any accidental plaintext password before we do anything else
+    entry.remove('password');
+    entry.remove('plain_password');
 
     try {
-      if (item['encrypted_metadata'] != null) {
-        final metadata = await _crypto.decryptMetadata(
+      if (entry['encrypted_metadata'] != null) {
+        final meta = await _crypto.decryptMetadata(
           _masterKey!,
-          item['encrypted_metadata'],
+          entry['encrypted_metadata'] as String,
         );
-        item.addAll(metadata);
+        entry['title']    = meta['name']       ?? meta['site_url'] ?? '';
+        entry['subtitle'] = meta['site_login'] ?? '';
+        entry['site_url'] = meta['site_url']   ?? '';
       }
-
-      // We don't decrypt payloads here to keep it efficient,
-      // they are decrypted on-demand (e.g., when copying or editing)
-    } catch (e) {
-      // Potentially legacy item or wrong key
+    } catch (_) {
+      entry['title']    = '(encrypted)';
+      entry['subtitle'] = '';
     }
-    return item;
-  }
 
-  Future<String> decryptPayload(String encryptedB64) async {
-    if (_masterKey == null) throw Exception("Vault is locked");
-    return await _crypto.decrypt(_masterKey!, encryptedB64);
+    // Never put decrypted payload in the list — keep it encrypted for on-demand use
+    return entry;
   }
 }

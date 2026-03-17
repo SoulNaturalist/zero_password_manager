@@ -60,6 +60,11 @@ class AppConfig {
   static String get resetPasswordUrl => '$apiUrl/api/v1/reset-password';
   static String get verifyTotpUrl => '$apiUrl/api/v1/verify-totp';
   static String get seedPhraseUrl => '$apiUrl/profile/seed-phrase';
+  static String get shareUrl => '$apiUrl/sharing';
+  static String get shareIncomingUrl => '$apiUrl/sharing/incoming';
+  static String get shareOutgoingUrl => '$apiUrl/sharing/outgoing';
+  static String get emergencyAccessUrl => '$apiUrl/emergency-access';
+  static String get rotationDueUrl => '$apiUrl/rotation/due';
 
   // WebAuthn Endpoints
   static String get webauthnRegisterOptionsUrl =>
@@ -77,4 +82,20 @@ class AppConfig {
   static String getFolderUrl(int folderId) => '$apiUrl/folders/$folderId';
   static String getRevokeDeviceUrl(int deviceId) =>
       '$apiUrl/webauthn/devices/$deviceId';
+
+  // Emergency Access Urls
+  static String getEmergencyAcceptUrl(int id) => '$apiUrl/emergency-access/$id/accept';
+  static String getEmergencyRequestUrl(int id) => '$apiUrl/emergency-access/$id/request';
+  static String getEmergencyCheckinUrl(int id) => '$apiUrl/emergency-access/$id/checkin';
+  static String getEmergencyDenyUrl(int id) => '$apiUrl/emergency-access/$id/deny';
+  static String getEmergencyRevokeUrl(int id) => '$apiUrl/emergency-access/$id/revoke';
+  static String getEmergencyVaultUrl(int id) => '$apiUrl/emergency-access/$id/vault';
+
+  // Sharing Urls
+  static String getShareAcceptUrl(int id) => '$apiUrl/sharing/$id/accept';
+  static String getShareUrl(int id) => '$apiUrl/sharing/$id';
+
+  // Rotation Urls
+  static String getRotationConfigUrl(int id) => '$apiUrl/rotation/$id/config';
+  static String getRotateUrl(int id) => '$apiUrl/rotation/$id/rotate';
 }

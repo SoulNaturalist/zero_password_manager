@@ -7,17 +7,17 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:csv/csv.dart';
 import 'dart:io';
-import 'dart:typed_data';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../main.dart';
 import 'edit_password_screen.dart';
 import 'folders_screen.dart';
 import '../config/app_config.dart';
-import '../utils/api_service.dart';
 import '../utils/folder_service.dart';
+import '../utils/hidden_folder_service.dart';
 import '../services/vault_service.dart';
-import '../services/cache_service.dart';
+import '../utils/memory_security.dart';
+import 'password_detail_screen.dart';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,26 +30,45 @@ Color _colorFromHex(String hex) {
 }
 
 IconData _iconFromName(String name) {
-  const map = {
-    'folder': Icons.folder,
-    'work': Icons.work,
-    'home': Icons.home,
-    'lock': Icons.lock,
-    'star': Icons.star,
-    'favorite': Icons.favorite,
-    'shopping_cart': Icons.shopping_cart,
-    'school': Icons.school,
-    'code': Icons.code,
-    'gaming': Icons.sports_esports,
-    'bank': Icons.account_balance,
-    'email': Icons.email,
-    'cloud': Icons.cloud,
-    'social': Icons.people,
-    'crypto': Icons.currency_bitcoin,
-    'vpn_key': Icons.vpn_key,
-  };
-  return map[name] ?? Icons.folder;
+  for (final e in _kFolderIcons) {
+    if (e['name'] == name) return e['icon'] as IconData;
+  }
+  return Icons.folder;
 }
+
+const List<String> _kFolderColors = [
+  '#5D52D2',
+  '#E74C3C',
+  '#E67E22',
+  '#F1C40F',
+  '#2ECC71',
+  '#1ABC9C',
+  '#3498DB',
+  '#9B59B6',
+  '#E91E63',
+  '#00BCD4',
+  '#FF5722',
+  '#607D8B',
+];
+
+const List<Map<String, dynamic>> _kFolderIcons = [
+  {'name': 'folder', 'icon': Icons.folder},
+  {'name': 'work', 'icon': Icons.work},
+  {'name': 'home', 'icon': Icons.home},
+  {'name': 'lock', 'icon': Icons.lock},
+  {'name': 'star', 'icon': Icons.star},
+  {'name': 'favorite', 'icon': Icons.favorite},
+  {'name': 'shopping_cart', 'icon': Icons.shopping_cart},
+  {'name': 'school', 'icon': Icons.school},
+  {'name': 'code', 'icon': Icons.code},
+  {'name': 'gaming', 'icon': Icons.sports_esports},
+  {'name': 'bank', 'icon': Icons.account_balance},
+  {'name': 'email', 'icon': Icons.email},
+  {'name': 'cloud', 'icon': Icons.cloud},
+  {'name': 'social', 'icon': Icons.people},
+  {'name': 'crypto', 'icon': Icons.currency_bitcoin},
+  {'name': 'vpn_key', 'icon': Icons.vpn_key},
+];
 
 // ── screen ───────────────────────────────────────────────────────────────────
 
@@ -109,7 +128,9 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   }
 
   Future<void> _loadFolders() async {
-    final result = await FolderService.getFolders();
+    final result = await FolderService.getFolders(
+      includeHidden: HiddenFolderService.instance.isUnlocked,
+    );
     if (mounted) {
       setState(() => folders = result);
     }
@@ -120,51 +141,30 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     await _loadSeedPhraseSettings();
 
     try {
-      final decryptedData = await VaultService().syncVault();
+      // Loads ONLY decrypted metadata — encrypted_payload stays encrypted
+      final list = await VaultService().loadPasswordList();
 
       setState(() {
-        passwords =
-            decryptedData
-                .map<Map<String, dynamic>>(
-                  (item) => {
-                    'id': item['id'],
-                    'title':
-                        item['name'] ??
-                        item['site_url'] ??
-                        'Безымянный', // From metadata
-                    'subtitle':
-                        item['site_login'] ?? 'Нет логина', // From metadata
-                    'password': item['encrypted_payload'], // Still encrypted
-                    'has_2fa': item['has_2fa'],
-                    'has_seed_phrase': item['has_seed_phrase'],
-                    'seed_phrase': item['seed_phrase'],
-                    'notes_encrypted': item['notes_encrypted'],
-                    'favicon_url': item['favicon_url'],
-                    'folder_id': item['folder_id'],
-                    'site_url': item['site_url'], // From metadata
-                  },
-                )
-                .toList();
+        passwords = list.map<Map<String, dynamic>>((item) => {
+          'id':               item['id'],
+          'title':            item['title']    ?? item['name'] ?? item['site_url'] ?? 'Безымянный',
+          'subtitle':         item['subtitle'] ?? item['site_login'] ?? 'Нет логина',
+          'site_url':         item['site_url']  ?? '',
+          // Keep encrypted payload for on-demand decryption in PasswordDetailScreen
+          'encrypted_payload':      item['encrypted_payload'],
+          'notes_encrypted':        item['notes_encrypted'],
+          'seed_phrase_encrypted':  item['seed_phrase_encrypted'],
+          'has_2fa':          item['has_2fa']          ?? false,
+          'has_seed_phrase':  item['has_seed_phrase']  ?? false,
+          'folder_id':        item['folder_id'],
+          'favicon_url':      item['favicon_url'],
+          'rotation_interval_days': item['rotation_interval_days'],
+          'last_rotated_at':  item['last_rotated_at'],
+        }).toList();
         isLoading = false;
       });
     } catch (e) {
-      // If error, try to load from cache
-      final cachedHashes = CacheService().getAllCachedHashes();
-      if (cachedHashes.isNotEmpty) {
-        final List<Map<String, dynamic>> cachedList = [];
-        for (var hash in cachedHashes) {
-          final pwd = CacheService().getCachedPassword(hash);
-          if (pwd != null) cachedList.add(pwd);
-        }
-
-        setState(() {
-          passwords =
-              cachedList; // Already partially decrypted metadata if synced before
-          isLoading = false;
-        });
-      } else {
-        setState(() => isLoading = false);
-      }
+      setState(() => isLoading = false);
     }
   }
 
@@ -285,25 +285,21 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final List results = data['results'] ?? [];
+      final List<dynamic> rawResults = data['results'] ?? [];
         setState(() {
-          searchResults =
-              results
-                  .map<Map<String, dynamic>>(
-                    (item) => {
-                      'id': item['id'],
-                      'title': item['site_url'],
-                      'subtitle': item['site_login'],
-                      'password': item['site_password'],
-                      'has_2fa': item['has_2fa'],
-                      'has_seed_phrase': item['has_seed_phrase'],
-                      'seed_phrase': item['seed_phrase'],
-                      'notes': item['notes'],
-                      'favicon_url': item['favicon_url'],
-                      'folder_id': item['folder_id'],
-                    },
-                  )
-                  .toList();
+          searchResults = rawResults.map<Map<String, dynamic>>((item) => {
+            'id':              item['id'],
+            'title':           item['site_url'] ?? '',
+            'subtitle':        item['site_login'] ?? '',
+            // Store only encrypted payload — never plaintext
+            'encrypted_payload':     item['encrypted_payload'],
+            'notes_encrypted':       item['notes_encrypted'],
+            'seed_phrase_encrypted': item['seed_phrase_encrypted'],
+            'has_2fa':         item['has_2fa'] ?? false,
+            'has_seed_phrase': item['has_seed_phrase'] ?? false,
+            'favicon_url':     item['favicon_url'],
+            'folder_id':       item['folder_id'],
+          }).toList();
           isSearching = false;
         });
       } else {
@@ -351,34 +347,37 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   // ── clipboard helpers ───────────────────────────────────────────────────────
 
-  void _copyPassword(String encryptedPassword) async {
-    if (encryptedPassword.isEmpty) return;
+  Future<void> _copyPassword(String? encryptedPayload) async {
+    if (encryptedPayload == null || encryptedPayload.isEmpty) return;
 
     try {
-      final decrypted = await VaultService().decryptPayload(encryptedPassword);
-      Clipboard.setData(ClipboardData(text: decrypted));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.button,
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 10),
-              Text(
-                'Пароль дешифрован и скопирован',
-                style: TextStyle(color: Colors.white),
-              ),
-            ],
+      final buf = await VaultService().decryptPayloadSecure(encryptedPayload);
+      await copySecureBuffer(buf);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.button,
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 10),
+                Text('Скопировано (авто-очистка через 30с)',
+                    style: TextStyle(color: Colors.white)),
+              ],
+            ),
           ),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.red,
-          content: Text('Ошибка дешифрования'),
-        ),
-      );
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('Ошибка дешифрования'),
+          ),
+        );
+      }
     }
   }
 
@@ -409,6 +408,19 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     if (result == true) _loadAll();
   }
 
+  /// Opens the detail screen for a password (lazy-decrypts on arrival).
+  void _navigateToDetail(Map<String, dynamic> entry) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PasswordDetailScreen(entry: entry),
+      ),
+    );
+    // Always reload list after returning (user may have edited or deleted)
+    await _loadAll();
+  }
+
+  // Keep for backward compat (called from long-press edit action)
   void _navigateToEditPassword(Map<String, dynamic> password) async {
     final result = await Navigator.push(
       context,
@@ -416,31 +428,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         builder: (context) => EditPasswordScreen(password: password),
       ),
     );
-
-    if (result == true) {
-      await _loadAll();
-    } else if (result != null && result['success'] == true) {
-      setState(() {
-        final index = passwords.indexWhere(
-          (p) => p['id'] == password['id'] || p['title'] == password['title'],
-        );
-        if (index != -1) {
-          passwords[index] = {
-            'id': result['data']['id'],
-            'title': result['data']['title'],
-            'subtitle': result['data']['subtitle'],
-            'password': result['data']['password'],
-            'has_2fa': result['data']['has_2fa'],
-            'has_seed_phrase': result['data']['has_seed_phrase'],
-            'seed_phrase': result['data']['seed_phrase'],
-            'notes': result['data']['notes'],
-            'favicon_url': result['data']['favicon_url'],
-            'folder_id': result['data']['folder_id'],
-          };
-        }
-      });
-      await _loadAll();
-    }
+    if (result == true) await _loadAll();
   }
 
   void _openFoldersScreen() async {
@@ -778,9 +766,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             height: 90,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: folders.length + 1, // +1 for "All" chip
+              itemCount: folders.length + 2, // +1 for "All" chip, +1 for "Add" chip
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (context, index) {
+                if (index == folders.length + 1) {
+                  return _buildAddFolderChip();
+                }
                 if (index == 0) {
                   return _buildFolderChip(
                     label: 'Все',
@@ -789,6 +780,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                     count: passwords.length,
                     isSelected: _selectedFolderId == null,
                     onTap: () => setState(() => _selectedFolderId = null),
+                    onLongPress: () {}, // No actions for "All" chip
                   );
                 }
                 final folder = folders[index - 1];
@@ -799,10 +791,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   folder['icon'] as String? ?? 'folder',
                 );
                 final isSelected = _selectedFolderId == folder['id'];
-                final count =
-                    passwords
-                        .where((p) => p['folder_id'] == folder['id'])
-                        .length;
+                final count = folder['password_count'] ?? 0;
 
                 return _buildFolderChip(
                   label: folder['name'] as String? ?? '',
@@ -810,10 +799,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   color: color,
                   count: count,
                   isSelected: isSelected,
-                  onTap:
-                      () => setState(
-                        () => _selectedFolderId = folder['id'] as int,
-                      ),
+                  onTap: () => setState(() => _selectedFolderId = folder['id'] as int),
+                  onLongPress: () => _showFolderActions(folder),
                 );
               },
             ),
@@ -832,9 +819,11 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     required int count,
     required bool isSelected,
     required VoidCallback onTap,
+    required VoidCallback onLongPress,
   }) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         width: 80,
@@ -885,6 +874,331 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         ),
       ),
     );
+  }
+
+  Widget _buildAddFolderChip() {
+    return GestureDetector(
+      onTap: () => _showFolderDialog(),
+      child: Container(
+        width: 80,
+        decoration: BoxDecoration(
+          color: AppColors.input.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.text.withOpacity(0.1),
+            width: 1,
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add, color: AppColors.button, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              'Новая',
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.text.withOpacity(0.7),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showFolderDialog({Map<String, dynamic>? existing}) async {
+    final nameController = TextEditingController(text: existing?['name'] ?? '');
+    String selectedColor = existing?['color'] as String? ?? '#5D52D2';
+    String selectedIcon = existing?['icon'] as String? ?? 'folder';
+    bool isHidden = existing?['is_hidden'] as bool? ?? false;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: NeonText(
+              text: existing == null ? 'Новая папка' : 'Редактировать папку',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: _colorFromHex(selectedColor).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _colorFromHex(selectedColor), width: 2),
+                      ),
+                      child: Icon(
+                        _iconFromName(selectedIcon),
+                        color: _colorFromHex(selectedColor),
+                        size: 32,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ThemedTextField(
+                    controller: nameController,
+                    hintText: 'Название папки',
+                    prefixIcon: Icon(Icons.drive_file_rename_outline, color: AppColors.button),
+                  ),
+                  const SizedBox(height: 20),
+                  // Hidden folder toggle
+                  GestureDetector(
+                    onTap: () => setDialogState(() => isHidden = !isHidden),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isHidden
+                            ? AppColors.button.withOpacity(0.12)
+                            : AppColors.input,
+                        borderRadius: BorderRadius.circular(12),
+                        border: isHidden
+                            ? Border.all(color: AppColors.button.withOpacity(0.4))
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isHidden ? Icons.lock : Icons.lock_open,
+                            color: isHidden ? AppColors.button : AppColors.text.withOpacity(0.5),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Скрытая папка',
+                                    style: TextStyle(
+                                        color: AppColors.text,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14)),
+                                Text('Требует TOTP для просмотра',
+                                    style: TextStyle(
+                                        color: AppColors.text.withOpacity(0.5),
+                                        fontSize: 11)),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: isHidden,
+                            onChanged: (v) => setDialogState(() => isHidden = v),
+                            activeColor: AppColors.button,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Цвет',
+                    style: TextStyle(
+                      color: AppColors.text.withOpacity(0.7),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kFolderColors.map((hex) {
+                      final isSelected = hex == selectedColor;
+                      return GestureDetector(
+                        onTap: () => setDialogState(() => selectedColor = hex),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: _colorFromHex(hex),
+                            borderRadius: BorderRadius.circular(8),
+                            border: isSelected ? Border.all(color: Colors.white, width: 2.5) : null,
+                            boxShadow: isSelected
+                                ? [BoxShadow(color: _colorFromHex(hex).withOpacity(0.6), blurRadius: 8)]
+                                : null,
+                          ),
+                          child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 18) : null,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Иконка',
+                    style: TextStyle(
+                      color: AppColors.text.withOpacity(0.7),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kFolderIcons.map((entry) {
+                      final name = entry['name'] as String? ?? 'Без имени';
+                      final iconData = entry['icon'] as IconData;
+                      final isSelected = name == selectedIcon;
+                      return GestureDetector(
+                        onTap: () => setDialogState(() => selectedIcon = name),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: isSelected ? _colorFromHex(selectedColor).withOpacity(0.25) : AppColors.input,
+                            borderRadius: BorderRadius.circular(10),
+                            border: isSelected ? Border.all(color: _colorFromHex(selectedColor), width: 1.5) : null,
+                          ),
+                          child: Icon(
+                            iconData,
+                            color: isSelected ? _colorFromHex(selectedColor) : AppColors.text.withOpacity(0.6),
+                            size: 20,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+              ),
+              ThemedButton(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                onPressed: () async {
+                  final name = nameController.text.trim();
+                  if (name.isEmpty) return;
+
+                  if (existing == null) {
+                    await FolderService.createFolder(
+                      name: name,
+                      color: selectedColor,
+                      icon: selectedIcon,
+                      isHidden: isHidden,
+                    );
+                  } else {
+                    await FolderService.updateFolder(
+                      existing['id'] as int,
+                      name: name,
+                      color: selectedColor,
+                      icon: selectedIcon,
+                      isHidden: isHidden,
+                    );
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                },
+                child: Text(
+                  existing == null ? 'Создать' : 'Сохранить',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == true) _loadFolders();
+  }
+
+  void _showFolderActions(Map<String, dynamic> folder) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.text.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            NeonText(
+              text: folder['name'] as String? ?? '',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.text),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Icon(Icons.edit, color: AppColors.button),
+              title: Text('Редактировать', style: TextStyle(color: AppColors.text)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showFolderDialog(existing: folder);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: AppColors.error),
+              title: Text('Удалить папку', style: TextStyle(color: AppColors.error)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteFolder(folder);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteFolder(Map<String, dynamic> folder) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: NeonText(text: 'Удалить папку?', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Папка «${folder['name']}» будет удалена.\nПароли из этой папки останутся в общем списке.',
+          style: TextStyle(color: AppColors.text.withOpacity(0.8)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Удалить', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await FolderService.deleteFolder(folder['id'] as int);
+      _loadFolders();
+      if (_selectedFolderId == folder['id']) {
+        setState(() => _selectedFolderId = null);
+      }
+    }
   }
 
   Widget _buildPasswordsSection(List<Map<String, dynamic>> filtered) {
@@ -977,7 +1291,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         return ThemedContainer(
           margin: const EdgeInsets.only(bottom: 16),
           child: InkWell(
-            onTap: () => _navigateToEditPassword(item),
+            onTap: () => _navigateToDetail(item),
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1103,19 +1417,6 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                                   ),
                                 ),
                               ],
-                            ),
-                          ),
-                        if (item['notes'] != null &&
-                            item['notes'].toString().isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              item['notes'],
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.text.withOpacity(0.6),
-                                fontStyle: FontStyle.italic,
-                              ),
                             ),
                           ),
                       ],

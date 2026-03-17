@@ -147,7 +147,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       return;
     }
     try {
-      final passwords = await _vault.syncVault();
+      final passwords = await _vault.loadPasswordList();
       final shareKeyB64 = await _service.uploadVaultSnapshot(
         eaId: eaId,
         decryptedPasswords: passwords,

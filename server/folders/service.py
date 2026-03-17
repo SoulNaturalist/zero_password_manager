@@ -19,18 +19,23 @@ def get_folder_by_id(
     )
 
 
-def get_folders(db: Session, user_id: int) -> list[Folder]:
+def get_folders(
+    db: Session, user_id: int, include_hidden: bool = False
+) -> list[Folder]:
     """
     Return all folders with password_count attached as a transient attribute.
+    When include_hidden is False (default), hidden folders are excluded from the result.
     Uses a single LEFT JOIN + GROUP BY to avoid the N+1 query problem.
     """
-    rows = (
+    query = (
         db.query(Folder, func.count(Password.id).label("pw_count"))
         .outerjoin(Password, Password.folder_id == Folder.id)
         .filter(Folder.user_id == user_id)
-        .group_by(Folder.id)
-        .all()
     )
+    if not include_hidden:
+        query = query.filter(Folder.is_hidden == False)  # noqa: E712
+    rows = query.group_by(Folder.id).all()
+
     for folder, count in rows:
         folder.password_count = count
     return [folder for folder, _ in rows]
@@ -42,21 +47,23 @@ def create_folder(db: Session, data: FolderCreate, user_id: int) -> Folder:
         name=data.name,
         color=data.color,
         icon=data.icon,
+        is_hidden=data.is_hidden,
     )
     db.add(folder)
     db.commit()
     db.refresh(folder)
     folder.password_count = 0
 
-    audit(db, user_id, "folder_create", meta={"name": data.name})
+    audit(db, user_id, "folder_create", meta={"name": data.name, "is_hidden": data.is_hidden})
     return folder
 
 
 def update_folder(db: Session, folder: Folder, data: FolderUpdate) -> Folder:
     """Update a Folder object that was already fetched and ownership-checked."""
-    if data.name  is not None: folder.name  = data.name
-    if data.color is not None: folder.color = data.color
-    if data.icon  is not None: folder.icon  = data.icon
+    if data.name      is not None: folder.name      = data.name
+    if data.color     is not None: folder.color     = data.color
+    if data.icon      is not None: folder.icon      = data.icon
+    if data.is_hidden is not None: folder.is_hidden = data.is_hidden
     db.commit()
     db.refresh(folder)
 
@@ -81,3 +88,4 @@ def delete_folder(db: Session, folder: Folder) -> None:
     audit(db, folder.user_id, "folder_delete", meta={"id": folder.id})
     db.delete(folder)
     db.commit()
+

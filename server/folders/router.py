@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -23,10 +23,11 @@ limiter = Limiter(key_func=get_remote_address)
 @limiter.limit("60/minute")
 def read_folders(
     request: Request,
+    include_hidden: bool = Query(False, alias="include_hidden"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return get_folders(db, user_id=current_user.id)
+    return get_folders(db, user_id=current_user.id, include_hidden=include_hidden)
 
 
 @router.post("", response_model=FolderResponse, status_code=201)

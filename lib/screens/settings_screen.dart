@@ -12,8 +12,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import '../services/vault_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import '../utils/hidden_folder_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -38,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _passwordCount = 0;
   bool _isProfileLoading = false;
   bool _hasSeedPhrase = false;
+  bool _showHiddenFolders = false;
 
   @override
   void initState() {
@@ -47,6 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadBiometricSettings();
     _loadThemeSettings();
     _loadProfile();
+    _showHiddenFolders = HiddenFolderService.instance.isUnlocked;
   }
 
   Future<void> _loadDevices() async {
@@ -71,6 +73,118 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _toggleHiddenFolders(bool value) async {
+    if (!value) {
+      HiddenFolderService.instance.lock();
+      setState(() => _showHiddenFolders = false);
+      return;
+    }
+
+    // Request TOTP before revealing hidden folders
+    final controller = TextEditingController();
+    final verified = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.button.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.shield_outlined, color: AppColors.button, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Скрытые папки',
+              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Введите TOTP-код для отображения скрытых папок',
+              style: TextStyle(color: AppColors.text.withOpacity(0.7), fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            StatefulBuilder(
+              builder: (ctx2, setField) => TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 28,
+                  letterSpacing: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: '000000',
+                  hintStyle: TextStyle(color: AppColors.text.withOpacity(0.3), letterSpacing: 12),
+                  filled: true,
+                  fillColor: AppColors.input,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: AppColors.button, width: 2),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.button,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              final ok = await HiddenFolderService.instance.verifyTotp(controller.text.trim());
+              if (ctx.mounted) Navigator.pop(ctx, ok);
+            },
+            child: const Text('Подтвердить'),
+          ),
+        ],
+      ),
+    );
+
+    if (verified == true) {
+      setState(() => _showHiddenFolders = true);
+    } else if (mounted && verified == false) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Неверный TOTP-код', style: TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
+      );
     }
   }
 
@@ -1166,6 +1280,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                     onTap:
                         () => Navigator.pushNamed(context, '/password-history'),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── Скрытые папки ────────────────────────────────────────
+                  _buildSectionHeader('Скрытые папки'),
+
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _showHiddenFolders
+                          ? AppColors.button.withOpacity(0.08)
+                          : AppColors.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _showHiddenFolders
+                            ? AppColors.button.withOpacity(0.35)
+                            : AppColors.text.withOpacity(0.08),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: _showHiddenFolders
+                                ? AppColors.button.withOpacity(0.2)
+                                : AppColors.input,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            _showHiddenFolders ? Icons.visibility : Icons.visibility_off,
+                            color: _showHiddenFolders
+                                ? AppColors.button
+                                : AppColors.text.withOpacity(0.5),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Показывать скрытые папки',
+                                style: TextStyle(
+                                  color: AppColors.text,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _showHiddenFolders
+                                    ? 'Разблокировано на эту сессию'
+                                    : 'Требуется TOTP для включения',
+                                style: TextStyle(
+                                  color: _showHiddenFolders
+                                      ? AppColors.button.withOpacity(0.8)
+                                      : AppColors.text.withOpacity(0.5),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _showHiddenFolders,
+                          onChanged: _toggleHiddenFolders,
+                          activeColor: AppColors.button,
+                        ),
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 24),

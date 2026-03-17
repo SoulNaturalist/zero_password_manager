@@ -14,12 +14,15 @@ class FolderService {
   }
 
   /// Returns list of folder maps from the server.
-  static Future<List<Map<String, dynamic>>> getFolders() async {
+  /// Pass [includeHidden] = true (after TOTP verification) to also receive hidden folders.
+  static Future<List<Map<String, dynamic>>> getFolders({
+    bool includeHidden = false,
+  }) async {
     final headers = await _authHeaders();
-    final response = await ApiService.get(
-      AppConfig.foldersUrl,
-      headers: headers,
-    );
+    final url = includeHidden
+        ? '${AppConfig.foldersUrl}?include_hidden=true'
+        : AppConfig.foldersUrl;
+    final response = await ApiService.get(url, headers: headers);
     if (response.statusCode == 200) {
       final List data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
@@ -32,12 +35,18 @@ class FolderService {
     required String name,
     required String color,
     required String icon,
+    bool isHidden = false,
   }) async {
     final headers = await _authHeaders();
     final response = await ApiService.post(
       AppConfig.foldersUrl,
       headers: headers,
-      body: json.encode({'name': name, 'color': color, 'icon': icon}),
+      body: json.encode({
+        'name': name,
+        'color': color,
+        'icon': icon,
+        'is_hidden': isHidden,
+      }),
     );
     if (response.statusCode == 201) {
       return json.decode(response.body) as Map<String, dynamic>;
@@ -51,12 +60,14 @@ class FolderService {
     String? name,
     String? color,
     String? icon,
+    bool? isHidden,
   }) async {
     final headers = await _authHeaders();
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (color != null) body['color'] = color;
     if (icon != null) body['icon'] = icon;
+    if (isHidden != null) body['is_hidden'] = isHidden;
 
     final response = await ApiService.put(
       AppConfig.getFolderUrl(folderId),
@@ -79,3 +90,4 @@ class FolderService {
     return response.statusCode == 204;
   }
 }
+

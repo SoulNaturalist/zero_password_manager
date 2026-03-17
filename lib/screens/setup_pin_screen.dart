@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:typed_data';
-import 'dart:convert';
 import '../theme/colors.dart';
 import '../services/vault_service.dart';
 
