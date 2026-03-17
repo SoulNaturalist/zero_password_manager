@@ -124,7 +124,7 @@ def register(
     new_user = create_user(db, data=body)
 
     secret = pyotp.random_base32()
-    update_user_totp(db, new_user.id, secret=secret)
+    update_user_totp(db, new_user, secret=secret)
     totp_uri = pyotp.TOTP(secret).provisioning_uri(
         name=new_user.login, issuer_name="ZeroVault"
     )
@@ -270,7 +270,7 @@ async def setup_2fa(
     
     # Генерируем новый секрет
     secret = pyotp.random_base32()
-    update_user_totp(db, current_user.id, secret=secret)
+    update_user_totp(db, current_user, secret=secret)
     
     # Создаем URI для QR кода
     otp_uri = pyotp.TOTP(secret).provisioning_uri(

@@ -10,7 +10,9 @@ migrations = [
     "ALTER TABLE users ADD COLUMN failed_reset_attempts INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN reset_lockout_until DATETIME",
     "ALTER TABLE users ADD COLUMN seed_phrase_encrypted VARCHAR",
-    "ALTER TABLE users ADD COLUMN seed_phrase_last_viewed_at DATETIME"
+    "ALTER TABLE users ADD COLUMN seed_phrase_last_viewed_at DATETIME",
+    "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0",
+    "ALTER TABLE folders ADD COLUMN is_hidden BOOLEAN DEFAULT 0"
 ]
 
 for db_path in db_paths:

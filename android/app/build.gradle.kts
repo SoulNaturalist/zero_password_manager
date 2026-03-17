@@ -34,7 +34,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.nk3_zero"
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -64,7 +64,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("CMakeLists.txt")
-            version = "3.18.1"
+            version = "3.22.1"
         }
     }
 

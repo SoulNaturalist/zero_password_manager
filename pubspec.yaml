@@ -50,7 +50,7 @@ dependencies:
   cupertino_icons: ^1.0.2
   crypto: ^3.0.3
   shimmer: ^3.0.0
-  flutter_native_splash: ^2.4.7
+  flutter_native_splash: ^2.4.6
   device_info_plus: ^10.0.0
   flutter_local_notifications: ^18.0.1
   web_socket_channel: ^3.0.3
