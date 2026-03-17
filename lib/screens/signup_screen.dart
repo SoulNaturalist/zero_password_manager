@@ -116,7 +116,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       // 1. Client-side Zero-Knowledge: Generate salt and derive Master Key
       final salt = VaultService.generateRandomSalt();
       final masterKey = await VaultService.generateMasterKey(password, salt);
-      setState(() => _masterKey = masterKey);
 
       // 2. Send registration request with the client-generated salt
       final response = await http.post(
