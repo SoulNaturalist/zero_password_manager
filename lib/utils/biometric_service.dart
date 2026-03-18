@@ -1,123 +1,143 @@
-import 'package:flutter_locker/flutter_locker.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Biometric authentication service.
+///
+/// Strategy:
+///   1. [local_auth] checks biometric availability and performs the system prompt.
+///   2. [FlutterSecureStorage] stores the master key (hardware-backed Android
+///      Keystore / iOS Secure Enclave) under [_masterKeyStorageKey].
+///   3. The app authenticates with biometrics first, then reads from secure
+///      storage — this is the industry-standard approach for Flutter apps.
+///
+/// This pattern is more reliable than flutter_locker's combined auth+store
+/// because FlutterSecureStorage uses the Keystore directly without requiring
+/// BiometricPrompt's CryptoObject binding, which can fail on some devices.
 class BiometricService {
   static const String _biometricKey = 'biometric_enabled';
-  static const String _secretKey = 'biometric_passcode_key';
+  static const String _masterKeyStorageKey = 'biometric_master_key';
 
-  // Проверка доступности биометрической аутентификации
+  static final _auth = LocalAuthentication();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: false),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
+
+  // ── Availability ───────────────────────────────────────────────────────────
+
+  /// Returns true if the device supports biometrics AND has at least one
+  /// enrolled biometric (fingerprint / face).
   static Future<bool> isAvailable() async {
     try {
-      final isAvailable = await FlutterLocker.canAuthenticate();
-      print('BiometricService: canAuthenticate = $isAvailable');
-      return isAvailable;
+      final isSupported = await _auth.isDeviceSupported();
+      if (!isSupported) return false;
+      final canCheck = await _auth.canCheckBiometrics;
+      if (!canCheck) return false;
+      final available = await _auth.getAvailableBiometrics();
+      return available.isNotEmpty;
     } catch (e) {
-      print('BiometricService: Error checking availability: $e');
       return false;
     }
   }
 
-  // Проверяем, включена ли биометрия в настройках
+  /// Returns the list of enrolled biometric types for UI display.
+  static Future<List<BiometricType>> getAvailableBiometrics() async {
+    try {
+      return await _auth.getAvailableBiometrics();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ── Enabled flag ───────────────────────────────────────────────────────────
+
   static Future<bool> isBiometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_biometricKey) ?? false;
   }
 
-  // Включаем/выключаем биометрию
   static Future<void> setBiometricEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_biometricKey, enabled);
   }
 
-  // Аутентификация пользователя и расшифровка секрета
-  static Future<String?> authenticate({
-    String reason = 'Подтвердите свою личность',
-  }) async {
-    try {
-      final secret = await FlutterLocker.retrieve(
-        RetrieveSecretRequest(
-          key: _secretKey,
-          androidPrompt: AndroidPrompt(title: reason, cancelLabel: 'Отмена'),
-          iOsPrompt: IOsPrompt(touchIdText: reason),
-        ),
-      );
-      print('BiometricService: Authentication successful');
-      return secret;
-    } catch (e) {
-      print('BiometricService: Authentication failed: $e');
-      return null;
-    }
-  }
+  // ── Store master key (call after enabling biometrics) ──────────────────────
 
-  // Установка секрета с использованием биометрии
+  /// Store [value] (base64-encoded master key) in hardware-backed secure storage.
+  /// Does NOT require biometric auth to store — only to retrieve.
+  /// Returns true on success.
   static Future<bool> storeBiometricSecret(String value) async {
     try {
-      await FlutterLocker.save(
-        SaveSecretRequest(
-          key: _secretKey,
-          secret: value,
-          androidPrompt: AndroidPrompt(
-            title: 'Сохранить с биометрией',
-            cancelLabel: 'Отмена',
-          ),
-        ),
-      );
-      print('BiometricService: Secret stored');
+      await _storage.write(key: _masterKeyStorageKey, value: value);
       return true;
     } catch (e) {
-      print('BiometricService: Error storing secret: $e');
       return false;
     }
   }
 
-  // Удаление биометрических данных
-  static Future<void> resetBiometricSettings() async {
+  // ── Authenticate and retrieve master key ───────────────────────────────────
+
+  /// Show biometric prompt. On success, retrieve and return the stored secret.
+  /// Returns null if auth failed, was cancelled, or no secret is stored.
+  static Future<String?> authenticate({
+    String reason = 'Подтвердите отпечаток пальца для входа',
+  }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_biometricKey);
-      await FlutterLocker.delete(_secretKey);
-      print('BiometricService: Biometric settings reset');
+      final didAuth = await _auth.authenticate(
+        localizedReason: reason,
+        options: const AuthenticationOptions(
+          biometricOnly: false,   // allow device PIN fallback
+          stickyAuth: true,       // don't cancel on app switch
+          useErrorDialogs: true,
+        ),
+      );
+      if (!didAuth) return null;
+
+      // Biometric passed — read the secret from secure storage
+      final secret = await _storage.read(key: _masterKeyStorageKey);
+      return secret;
     } catch (e) {
-      print('BiometricService: Error resetting biometric settings: $e');
+      return null;
     }
   }
 
-  // Принудительное включение (для теста)
-  static Future<bool> forceEnableBiometrics() async {
-    final available = await isAvailable();
-    if (!available) return false;
+  // ── Reset ──────────────────────────────────────────────────────────────────
 
-    final stored = await storeBiometricSecret('dummy_secret');
-    if (!stored) return false;
-
-    final authenticated = await authenticate();
-    if (authenticated != null) {
-      await setBiometricEnabled(true);
-      return true;
-    }
-
-    return false;
+  static Future<void> resetBiometricSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_biometricKey);
+    try {
+      await _storage.delete(key: _masterKeyStorageKey);
+    } catch (_) {}
   }
 
-  // Диагностическая информация
+  // ── Diagnostic info (for debug/test screen) ────────────────────────────────
+
   static Future<Map<String, dynamic>> getDiagnosticInfo() async {
     try {
-      final canAuthenticate = await FlutterLocker.canAuthenticate();
+      final isSupported = await _auth.isDeviceSupported();
+      final canCheck = await _auth.canCheckBiometrics;
+      final available = await _auth.getAvailableBiometrics();
       final isEnabled = await isBiometricEnabled();
 
       return {
-        'canAuthenticate': canAuthenticate,
+        'canAuthenticate': canCheck && available.isNotEmpty,
         'isEnabled': isEnabled,
-        'systemStatus': canAuthenticate ? 'Доступна' : 'Недоступна',
-        'canUseBiometrics': canAuthenticate && isEnabled,
-        'canCheckBiometrics': canAuthenticate,
-        'isDeviceSupported': canAuthenticate,
-        'totalAvailableMethods': canAuthenticate ? 1 : 0,
-        'biometricDetails':
-            canAuthenticate
-                ? {'fingerprint': 'Отпечаток пальца', 'face': 'Face ID'}
-                : {},
-        'availableBiometrics': canAuthenticate ? ['fingerprint', 'face'] : [],
+        'systemStatus': (canCheck && available.isNotEmpty) ? 'Доступна' : 'Недоступна',
+        'canUseBiometrics': canCheck && available.isNotEmpty && isEnabled,
+        'canCheckBiometrics': canCheck,
+        'isDeviceSupported': isSupported,
+        'totalAvailableMethods': available.length,
+        'biometricDetails': {
+          if (available.contains(BiometricType.fingerprint))
+            'fingerprint': 'Отпечаток пальца',
+          if (available.contains(BiometricType.face))
+            'face': 'Распознавание лица',
+          if (available.contains(BiometricType.iris))
+            'iris': 'Сетчатка глаза',
+        },
+        'availableBiometrics': available.map((b) => b.name).toList(),
       };
     } catch (e) {
       return {
@@ -133,5 +153,20 @@ class BiometricService {
         'availableBiometrics': [],
       };
     }
+  }
+
+  /// For test screen — verify biometric is working end-to-end.
+  static Future<bool> forceEnableBiometrics() async {
+    final available = await isAvailable();
+    if (!available) return false;
+    final stored = await storeBiometricSecret('test_probe');
+    if (!stored) return false;
+    final result = await authenticate(reason: 'Тест биометрии');
+    await _storage.delete(key: _masterKeyStorageKey);
+    if (result != null) {
+      await setBiometricEnabled(true);
+      return true;
+    }
+    return false;
   }
 }

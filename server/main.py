@@ -818,6 +818,154 @@ def health():
     return {"status": "ok"}
 
 
+# ── Password Sharing ──────────────────────────────────────────────────────────
+
+@app.post("/sharing", response_model=schemas.ShareResponse, status_code=status.HTTP_201_CREATED)
+async def create_share(
+    share: schemas.ShareCreate,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a zero-knowledge password share.
+
+    The client re-encrypts the payload with an ephemeral key before sending;
+    the server never sees the plaintext or the share key.
+    """
+    # Verify recipient exists
+    recipient = db.query(models.User).filter(models.User.login == share.recipient_login).first()
+    if recipient is None:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    if recipient.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot share with yourself")
+
+    # Check expiry
+    expires_at = None
+    if share.expires_in_days is not None:
+        if not (1 <= share.expires_in_days <= 90):
+            raise HTTPException(status_code=400, detail="expires_in_days must be 1–90")
+        expires_at = datetime.now(timezone.utc) + timedelta(days=share.expires_in_days)
+
+    db_share = models.PasswordShare(
+        owner_id=current_user.id,
+        recipient_login=share.recipient_login,
+        encrypted_payload=share.encrypted_payload,
+        encrypted_metadata=share.encrypted_metadata,
+        label=share.label,
+        expires_at=expires_at,
+    )
+    db.add(db_share)
+    db.commit()
+    db.refresh(db_share)
+
+    crud.audit_event(db, current_user.id, "share_created",
+                     {"share_id": db_share.id, "recipient": share.recipient_login},
+                     background_tasks=background_tasks)
+    return db_share
+
+
+@app.get("/sharing/outgoing", response_model=List[schemas.ShareResponse])
+async def list_outgoing_shares(
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all shares created by the current user."""
+    shares = (
+        db.query(models.PasswordShare)
+        .filter(models.PasswordShare.owner_id == current_user.id)
+        .order_by(models.PasswordShare.created_at.desc())
+        .all()
+    )
+    return shares
+
+
+@app.get("/sharing/incoming", response_model=List[schemas.ShareResponse])
+async def list_incoming_shares(
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all shares sent to the current user."""
+    shares = (
+        db.query(models.PasswordShare)
+        .filter(models.PasswordShare.recipient_login == current_user.login)
+        .order_by(models.PasswordShare.created_at.desc())
+        .all()
+    )
+    return shares
+
+
+@app.get("/sharing/{share_id}", response_model=schemas.ShareDetailResponse)
+async def get_share(
+    share_id: int,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fetch share details (owner or recipient only)."""
+    share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
+    if share is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    if share.owner_id != current_user.id and share.recipient_login != current_user.login:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Enforce expiry
+    if share.expires_at and share.expires_at < datetime.now(timezone.utc):
+        share.status = "expired"
+        db.commit()
+        raise HTTPException(status_code=410, detail="Share has expired")
+
+    return share
+
+
+@app.post("/sharing/{share_id}/accept", response_model=schemas.ShareResponse)
+async def accept_share(
+    share_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark an incoming share as accepted."""
+    share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
+    if share is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    if share.recipient_login != current_user.login:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if share.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Share is already {share.status}")
+    if share.expires_at and share.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Share has expired")
+
+    share.status = "accepted"
+    db.commit()
+    db.refresh(share)
+
+    crud.audit_event(db, current_user.id, "share_accepted",
+                     {"share_id": share_id, "owner_id": share.owner_id},
+                     background_tasks=background_tasks)
+    return share
+
+
+@app.delete("/sharing/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_share(
+    share_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke (delete) a share. Only the owner can revoke."""
+    share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
+    if share is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    if share.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can revoke a share")
+
+    db.delete(share)
+    db.commit()
+
+    crud.audit_event(db, current_user.id, "share_revoked",
+                     {"share_id": share_id},
+                     background_tasks=background_tasks)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3000)

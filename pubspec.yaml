@@ -35,6 +35,7 @@ dependencies:
   file_picker: ^10.2.0
   flutter_dotenv: ^5.1.0
   flutter_locker: ^2.2.0
+  local_auth: ^2.3.0
   qr_flutter: ^4.1.0
   passkeys: ^2.8.2
   flutter_secure_storage: ^9.0.0

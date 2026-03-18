@@ -215,4 +215,31 @@ class SecurityEvent(Base):
     ip = Column(String)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+
+class PasswordShare(Base):
+    """Zero-knowledge password share.
+
+    The server stores the re-encrypted payload but never has access to the
+    share key — the sender transmits the key to the recipient out-of-band.
+    """
+    __tablename__ = "password_shares"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # Who created the share
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # Login of the intended recipient (may not be a registered user)
+    recipient_login = Column(String, nullable=False, index=True)
+    # Re-encrypted payload (AES-GCM, key known only to sender+recipient)
+    encrypted_payload = Column(String, nullable=False)
+    # Optional encrypted metadata (site name, etc.) for display purposes
+    encrypted_metadata = Column(JSON, nullable=True)
+    # Human-readable label (e.g. "Netflix login")
+    label = Column(String, nullable=True)
+    # pending → accepted → revoked
+    status = Column(String, nullable=False, default="pending", index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    owner = relationship("User", foreign_keys=[owner_id])
+
     user = relationship("User")

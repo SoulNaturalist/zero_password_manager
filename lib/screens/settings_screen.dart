@@ -596,6 +596,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       // ── Step 3: Store master key in biometric keystore ────────────────────────
       try {
+        // Double-check biometric availability before attempting store
+        final stillAvailable = await BiometricService.isAvailable();
+        if (!stillAvailable) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                backgroundColor: Colors.orange,
+                content: Text(
+                  'Отпечатки пальцев не настроены. Перейдите в Настройки → Безопасность → Отпечаток пальца и добавьте отпечаток.',
+                ),
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
         final vault = VaultService();
         if (vault.isLocked) {
           if (mounted) {
