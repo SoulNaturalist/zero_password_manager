@@ -1,13 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:safe_device/safe_device.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:nk3_zero/screens/login_screen.dart';
 import 'package:nk3_zero/screens/passwords_screen.dart';
 import 'package:nk3_zero/screens/pin_screen.dart';
 import 'package:nk3_zero/screens/setup_pin_screen.dart';
 import '../config/app_config.dart';
 import '../utils/pin_security.dart';
+import '../utils/biometric_service.dart';
 import '../services/vault_service.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -71,14 +75,24 @@ class _SplashScreenState extends State<SplashScreen> {
         // User has a PIN → go to PIN screen to unlock vault.
         destination = const PinScreen();
       } else {
-        // No PIN set — try to restore master key from device keystore
-        // (stored when user pressed "Skip" on SetupPinScreen).
-        final restored = await VaultService().loadNoPinMasterKey();
-        if (restored) {
-          destination = const PasswordsScreen();
+        // No PIN set — check biometric first, then fall back to no-PIN key.
+        final biometricEnabled = await BiometricService.isBiometricEnabled();
+        if (biometricEnabled) {
+          final secretB64 = await BiometricService.authenticate(
+            reason: 'Подтвердите отпечаток пальца для входа',
+          );
+          if (secretB64 != null) {
+            VaultService().setKey(SecretKey(base64.decode(secretB64)));
+            destination = const PasswordsScreen();
+          } else {
+            // Biometric failed/cancelled — try no-PIN key or require login.
+            final restored = await VaultService().loadNoPinMasterKey();
+            destination = restored ? const PasswordsScreen() : const LoginScreen();
+          }
         } else {
-          // Key not persisted (e.g. fresh install after logout) — need login.
-          destination = const LoginScreen();
+          // Biometric not enabled — try no-PIN stored key.
+          final restored = await VaultService().loadNoPinMasterKey();
+          destination = restored ? const PasswordsScreen() : const LoginScreen();
         }
       }
     } else {
