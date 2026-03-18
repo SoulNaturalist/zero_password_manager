@@ -7,11 +7,13 @@ class CacheService {
   CacheService._internal();
 
   static const String _vaultBoxName = 'encrypted_vault';
+  static const String _folderBoxName = 'folders_box';
 
   /// Initialize Hive and open the necessary boxes.
   Future<void> init() async {
     await Hive.initFlutter();
     await Hive.openBox(_vaultBoxName);
+    await Hive.openBox(_folderBoxName);
   }
 
   /// Stores an encrypted password blob in the local cache, keyed by its site_hash.
@@ -78,7 +80,28 @@ class CacheService {
 
   /// Clears the entire local cache (e.g., on logout or security reset).
   Future<void> clearCache() async {
-    final box = Hive.box(_vaultBoxName);
-    await box.clear();
+    await Hive.box(_vaultBoxName).clear();
+    await Hive.box(_folderBoxName).clear();
+  }
+
+  // ── Folders ─────────────────────────────────────────────────────────────────
+
+  /// Saves the list of local folders.
+  Future<void> saveFolders(List<Map<String, dynamic>> folders) async {
+    final box = Hive.box(_folderBoxName);
+    await box.put('all_folders', json.encode(folders));
+  }
+
+  /// Retrieves the list of local folders.
+  List<Map<String, dynamic>> getFolders() {
+    final box = Hive.box(_folderBoxName);
+    final data = box.get('all_folders');
+    if (data == null) return [];
+    try {
+      final list = json.decode(data as String) as List<dynamic>;
+      return list.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
   }
 }

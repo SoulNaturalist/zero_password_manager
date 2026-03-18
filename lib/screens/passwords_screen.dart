@@ -597,7 +597,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   ? const Center(child: CircularProgressIndicator())
                   : _buildBody(),
         ),
-        bottomNavigationBar: folders.isEmpty ? null : _buildFolderNavBar(),
+        bottomNavigationBar: _buildFolderNavBar(),
       ),
     );
   }
@@ -738,10 +738,29 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   // ── Bottom folder nav bar ─────────────────────────────────────────────────
 
   Widget _buildFolderNavBar() {
+    // Calculate counts for each folder locally
+    final Map<int?, int> counts = {};
+    for (var p in passwords) {
+      final fid = p['folder_id'] as int?;
+      counts[fid] = (counts[fid] ?? 0) + 1;
+    }
+
     // "All" + actual folders + "+" button
     final items = <Map<String, dynamic>>[
-      {'id': null, 'name': 'Все', 'icon': 'apps', 'color': '#5D52D2', '_count': passwords.length},
-      ...folders,
+      {
+        'id': null,
+        'name': 'Все',
+        'icon': 'apps',
+        'color': '#5D52D2',
+        '_count': passwords.length
+      },
+      ...folders.map((f) {
+        final fid = f['id'] as int?;
+        return {
+          ...f,
+          '_count': counts[fid] ?? 0,
+        };
+      }),
     ];
 
     return Container(
@@ -1558,10 +1577,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     }
 
     return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
       itemCount: passwordsToShow.length,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
       itemBuilder: (context, index) {
         final item = passwordsToShow[index];
         if (item['has_seed_phrase'] == true && _hideSeedPhrases) {

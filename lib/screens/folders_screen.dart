@@ -4,6 +4,7 @@ import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../utils/folder_service.dart';
 import '../utils/hidden_folder_service.dart';
+import '../services/vault_service.dart';
 
 /// Palette of preset colours the user can pick for a folder.
 const List<String> _kFolderColors = [
@@ -78,9 +79,28 @@ class _FoldersScreenState extends State<FoldersScreen> {
     final folders = await FolderService.getFolders(
       includeHidden: _hiddenService.isUnlocked,
     );
+    
+    // Calculate counts locally
+    final Map<int, int> counts = {};
+    try {
+      final passwords = await VaultService().loadPasswordList();
+      for (var p in passwords) {
+        final fid = p['folder_id'] as int?;
+        if (fid != null) {
+          counts[fid] = (counts[fid] ?? 0) + 1;
+        }
+      }
+    } catch (_) {}
+
     if (mounted) {
       setState(() {
-        _folders = folders;
+        _folders = folders.map((f) {
+           final id = f['id'] as int;
+           return {
+             ...f,
+             'password_count': counts[id] ?? 0,
+           };
+        }).toList();
         _isLoading = false;
       });
     }
