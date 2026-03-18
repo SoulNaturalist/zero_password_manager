@@ -190,6 +190,21 @@ class UsedOTP(Base):
     user = relationship("User")
 
 
+class UsedMFAToken(Base):
+    """One-time-use store for MFA token JTIs (prevents replay within the 2-minute window).
+    Rows with expired `expires_at` are cleaned up by the periodic cleanup task.
+    The UniqueConstraint on `jti` makes the INSERT atomic — a concurrent second
+    request using the same token gets IntegrityError and is rejected.
+    """
+    __tablename__ = "used_mfa_tokens"
+    __table_args__ = (UniqueConstraint("jti", name="uq_mfa_jti"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    jti = Column(String, nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class SecurityEvent(Base):
     __tablename__ = "security_events"
 

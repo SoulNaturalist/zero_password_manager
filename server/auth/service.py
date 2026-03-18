@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import User, RefreshToken, SecurityEvent, UsedOTP
+from ..models import User, RefreshToken, SecurityEvent, UsedOTP, UsedMFAToken
 from ..security import SecurityManager, SECURITY_PARAMS
 from ..audit.service import record as audit
 from .constants import (
@@ -209,6 +209,13 @@ def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address:
     if not otp:
         raise OTPRequired()
 
+    # ── Lockout check BEFORE any cryptographic work (NIST 800-63B) ──
+    if user.lockout_until and user.lockout_until > datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=423,
+            detail="Account temporarily locked. Try again later.",
+        )
+
     # ── Step 1: mathematical check (fast path — rejects wrong codes without DB) ──
     totp_secret = decrypt_totp(user.totp_secret, user.id)
     totp_obj = pyotp.TOTP(totp_secret)
@@ -266,29 +273,54 @@ def constant_time_response(start_time: float) -> None:
     SecurityManager.constant_time_delay(start_time)
 
 def create_mfa_token(user_id: int, device_id: str) -> str:
-    """Create a temporary MFA token for two-factor authentication."""
+    """Create a temporary one-time-use MFA token.  jti is stored in UsedMFAToken
+    on first use; a second attempt with the same token gets IntegrityError → 401.
+    """
     now = int(time.time())
     payload = {
         "sub": str(user_id),
         "device": device_id,
         "type": "mfa",
+        "jti": secrets.token_hex(16),  # unique ID for one-time-use enforcement
         "iat": now,
         "exp": now + 120,  # 2 minutes
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
 
-def validate_mfa_token(token: str) -> dict:
-    """Validate MFA token and return payload."""
+def validate_mfa_token(token: str, db: Session) -> dict:
+    """Validate MFA token and atomically mark it as used (replay protection).
+
+    Uses the same atomic-INSERT pattern as verify_hardened_otp / UsedOTP:
+    the UniqueConstraint on UsedMFAToken.jti ensures that if two concurrent
+    requests present the same token only one succeeds; the second gets an
+    IntegrityError and is rejected with 401.
+    """
+    from sqlalchemy.exc import IntegrityError
+    from datetime import timezone as _tz
+
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "mfa":
             raise ValueError("Invalid token type")
-        return payload
     except Exception:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid MFA token"
-        )
+        raise HTTPException(status_code=401, detail="Invalid MFA token")
+
+    jti = payload.get("jti")
+    if not jti:
+        # Tokens without jti pre-date this change; reject them.
+        raise HTTPException(status_code=401, detail="Invalid MFA token")
+
+    exp = payload.get("exp", 0)
+    expires_at = datetime.fromtimestamp(exp, tz=_tz.utc)
+
+    try:
+        db.add(UsedMFAToken(jti=jti, expires_at=expires_at))
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=401, detail="MFA token already used")
+
+    return payload
 
 def get_device_id_from_request(request: Request) -> str:
     """Get device ID from secure cookie or generate new one."""

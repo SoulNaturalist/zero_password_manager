@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -105,11 +105,15 @@ async def startup_event():
     async def periodic_cleanup():
         while True:
             await asyncio.sleep(SECURITY_PARAMS["BLOCK_CLEANUP_INTERVAL"].total_seconds())
-            # Использование db_session в фоновом режиме
             from ..database import SessionLocal
+            from ..models import UsedMFAToken
             db = SessionLocal()
             try:
                 SecurityManager.cleanup_old_blocks(db)
+                # Remove expired one-time MFA token records (TTL = 2 min, safe to purge after 10 min)
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                db.query(UsedMFAToken).filter(UsedMFAToken.expires_at < cutoff).delete()
+                db.commit()
             finally:
                 db.close()
     
@@ -326,8 +330,8 @@ async def login_phase2(
     totp_valid = False
     
     try:
-        # Валидируем MFA токен
-        payload = validate_mfa_token(body.mfa_token)
+        # Валидируем MFA токен (atomically consumed — replay-safe)
+        payload = validate_mfa_token(body.mfa_token, db)
         user_id = int(payload["sub"])
         device_id = payload["device"]
         
@@ -340,13 +344,14 @@ async def login_phase2(
             )
         
         # Проверка TOTP
+        # verify_hardened_otp already calls handle_failed_otp_attempt on any failure,
+        # so we must NOT call it again here — doing so would double-increment the counter.
         try:
             verify_hardened_otp(db, user, body.code, ip_address)
             totp_valid = True
             reset_otp_failure_counters(user, db)
         except Exception as e:
-            handle_failed_otp_attempt(db, user, ip_address)
-            log_security_event(db, user.id, "otp_failed", 
+            log_security_event(db, user.id, "otp_failed",
                 {"error": str(e), "ip": ip_address}, ip_address)
             raise
 
@@ -429,15 +434,14 @@ async def confirm_2fa(
     try:
         totp_secret = decrypt_totp(current_user.totp_secret, current_user.id)
         totp_obj = pyotp.TOTP(totp_secret)
-        # Wide window: ±3 steps (±90 s) — covers reasonable clock drift
-        valid = totp_obj.verify(body.code, valid_window=3)
+        # valid_window=1 → ±30 s drift compensation (NIST 800-63B / RFC 6238)
+        valid = totp_obj.verify(body.code, valid_window=1)
         if not valid:
-            # Debug: show expected codes so we can tell if it's a clock/secret mismatch
             now = datetime.utcnow()
             expected = {str(offset): totp_obj.at(now + timedelta(seconds=offset))
-                        for offset in (-90, -60, -30, 0, 30, 60, 90)}
+                        for offset in (-30, 0, 30)}
             _log.warning(
-                "confirm_2fa: invalid TOTP for user_id=%s ip=%s | received=%r expected(±90s)=%s",
+                "confirm_2fa: invalid TOTP for user_id=%s ip=%s | received=%r expected(±30s)=%s",
                 current_user.id, ip_address, body.code, expected,
             )
             handle_failed_otp_attempt(db, current_user, ip_address)
