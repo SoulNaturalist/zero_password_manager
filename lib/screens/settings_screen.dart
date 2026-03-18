@@ -1481,6 +1481,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
 
                   const SizedBox(height: 24),
+                  _buildSectionHeader('Организация'),
+
+                  _buildSettingTile(
+                    icon: Icons.folder_open_outlined,
+                    title: 'Папки',
+                    subtitle: 'Управление папками и категориями',
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () => Navigator.pushNamed(context, '/folders'),
+                  ),
+
+                  const SizedBox(height: 24),
 
                   // Секция интерфейса
                   _buildSectionHeader('Интерфейс'),
