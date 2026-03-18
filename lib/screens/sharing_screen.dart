@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../theme/colors.dart';
+import '../widgets/themed_widgets.dart';
 import '../services/sharing_service.dart';
 import '../services/vault_service.dart';
 
 class SharingScreen extends StatefulWidget {
-  const SharingScreen({super.key});
+  /// Optional password entry from the vault list. When provided the share
+  /// creation sheet opens automatically with the entry's data pre-filled.
+  final Map<String, dynamic>? initialEntry;
+
+  const SharingScreen({super.key, this.initialEntry});
 
   @override
   State<SharingScreen> createState() => _SharingScreenState();
@@ -25,6 +31,12 @@ class _SharingScreenState extends State<SharingScreen>
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
     _load();
+    // Auto-open share sheet when launched from the password list
+    if (widget.initialEntry != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showCreateShareSheet(widget.initialEntry!);
+      });
+    }
   }
 
   @override
@@ -33,6 +45,8 @@ class _SharingScreenState extends State<SharingScreen>
     super.dispose();
   }
 
+  // ── Data ──────────────────────────────────────────────────────────────────
+
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
@@ -40,106 +54,228 @@ class _SharingScreenState extends State<SharingScreen>
         _sharing.getIncomingShares(),
         _sharing.getOutgoingShares(),
       ]);
-      setState(() {
-        _incoming = results[0];
-        _outgoing = results[1];
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _incoming = results[0];
+          _outgoing = results[1];
+          _loading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _loading = false);
-      _showError('Failed to load shares: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        _showError('Ошибка загрузки: $e');
+      }
     }
   }
 
   // ── Create share ──────────────────────────────────────────────────────────
 
-  void _showCreateShareDialog() {
+  void _showCreateShareSheet([Map<String, dynamic>? entry]) {
     if (_vault.isLocked) {
-      _showError('Vault is locked. Please unlock first.');
+      _showError('Хранилище заблокировано. Пожалуйста, войдите снова.');
       return;
     }
-    final recipientCtrl = TextEditingController();
-    final payloadCtrl = TextEditingController();
-    final labelCtrl = TextEditingController();
-    int? expiryDays;
 
-    showDialog(
+    final recipientCtrl = TextEditingController();
+    final labelCtrl = TextEditingController(
+      text: entry?['title'] as String? ?? '',
+    );
+    final encryptedPayload = entry?['encrypted_payload'] as String? ?? '';
+    int? expiryDays = 7;
+
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Share a Password'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'The password will be re-encrypted with a one-time key. '
-                  'Send the key to the recipient separately.',
-                  style: TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: recipientCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Recipient username',
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: labelCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Label (optional)',
-                    prefixIcon: Icon(Icons.label),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: payloadCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Encrypted payload',
-                    prefixIcon: Icon(Icons.lock),
-                    helperText: 'Paste the encrypted_payload from the vault entry',
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<int?>(
-                  value: expiryDays,
-                  decoration: const InputDecoration(labelText: 'Expires in'),
-                  items: const [
-                    DropdownMenuItem(value: null, child: Text('Never')),
-                    DropdownMenuItem(value: 1, child: Text('1 day')),
-                    DropdownMenuItem(value: 7, child: Text('7 days')),
-                    DropdownMenuItem(value: 30, child: Text('30 days')),
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(
+                color: AppColors.button.withOpacity(0.15),
+                width: 1,
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.text.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Title row
+                    Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.button.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.share_rounded,
+                            color: AppColors.button,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            NeonText(
+                              text: 'Поделиться паролем',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.text,
+                              ),
+                            ),
+                            Text(
+                              'Пароль шифруется одноразовым ключом',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.text.withOpacity(0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Recipient field
+                    _SheetLabel(label: 'Получатель', icon: Icons.person_outline),
+                    const SizedBox(height: 6),
+                    _StyledField(
+                      controller: recipientCtrl,
+                      hint: 'Логин получателя',
+                      icon: Icons.alternate_email,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Label field
+                    _SheetLabel(label: 'Метка (необязательно)', icon: Icons.label_outline),
+                    const SizedBox(height: 6),
+                    _StyledField(
+                      controller: labelCtrl,
+                      hint: 'Название для получателя',
+                      icon: Icons.title,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Expiry
+                    _SheetLabel(label: 'Срок действия', icon: Icons.timer_outlined),
+                    const SizedBox(height: 6),
+                    ThemedContainer(
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int?>(
+                          value: expiryDays,
+                          isExpanded: true,
+                          dropdownColor: AppColors.surface,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
+                          style: TextStyle(color: AppColors.text, fontSize: 14),
+                          items: const [
+                            DropdownMenuItem(
+                                value: null, child: Text('Без срока')),
+                            DropdownMenuItem(
+                                value: 1, child: Text('1 день')),
+                            DropdownMenuItem(
+                                value: 7, child: Text('7 дней')),
+                            DropdownMenuItem(
+                                value: 30, child: Text('30 дней')),
+                          ],
+                          onChanged: (v) => setSheet(() => expiryDays = v),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Submit button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          final recipient = recipientCtrl.text.trim();
+                          if (recipient.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Введите логин получателя'),
+                              ),
+                            );
+                            return;
+                          }
+                          if (encryptedPayload.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('Выберите пароль для отправки'),
+                              ),
+                            );
+                            return;
+                          }
+                          Navigator.pop(ctx);
+                          await _createShare(
+                            recipient: recipient,
+                            encryptedPayload: encryptedPayload,
+                            label: labelCtrl.text.trim().isEmpty
+                                ? null
+                                : labelCtrl.text.trim(),
+                            expiresInDays: expiryDays,
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.button,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.lock_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Создать ссылку',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
-                  onChanged: (v) => setDlgState(() => expiryDays = v),
                 ),
-              ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (recipientCtrl.text.trim().isEmpty ||
-                    payloadCtrl.text.trim().isEmpty) return;
-                Navigator.pop(ctx);
-                await _createShare(
-                  recipient: recipientCtrl.text.trim(),
-                  encryptedPayload: payloadCtrl.text.trim(),
-                  label: labelCtrl.text.trim().isEmpty
-                      ? null
-                      : labelCtrl.text.trim(),
-                  expiresInDays: expiryDays,
-                );
-              },
-              child: const Text('Share'),
-            ),
-          ],
         ),
       ),
     );
@@ -160,62 +296,120 @@ class _SharingScreenState extends State<SharingScreen>
         expiresInDays: expiresInDays,
       );
       if (!mounted) return;
-      _showShareKeyDialog(result.shareKey);
+      _showShareKeyDialog(result.shareKey, label ?? 'пароль');
       await _load();
     } catch (e) {
-      _showError('Share failed: $e');
+      _showError('Ошибка: $e');
     }
   }
 
-  void _showShareKeyDialog(String shareKey) {
+  void _showShareKeyDialog(String shareKey, String label) {
+    bool _keyCopied = false;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Share Created'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Send this key to the recipient. Shown only once — copy it now.',
-              style: TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.check_circle_outline,
+                    color: Colors.green, size: 20),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SelectableText(
-                      shareKey,
-                      style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 11),
-                    ),
+              const SizedBox(width: 10),
+              NeonText(
+                text: 'Доступ создан',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.text,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Передайте ключ получателю отдельным каналом. Ключ отображается только один раз.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.text.withOpacity(0.65),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ThemedContainer(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          shareKey,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: AppColors.button,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: shareKey));
+                          setDlg(() => _keyCopied = true);
+                          Future.delayed(const Duration(seconds: 2), () {
+                            if (ctx.mounted) setDlg(() => _keyCopied = false);
+                          });
+                        },
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: Icon(
+                            _keyCopied
+                                ? Icons.check_circle
+                                : Icons.copy_rounded,
+                            key: ValueKey(_keyCopied),
+                            color: _keyCopied
+                                ? Colors.green
+                                : AppColors.button,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.copy),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: shareKey));
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('Key copied')),
-                      );
-                    },
-                  ),
-                ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.button,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Готово'),
               ),
             ),
           ],
         ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done'),
-          ),
-        ],
       ),
     );
   }
@@ -227,38 +421,89 @@ class _SharingScreenState extends State<SharingScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Accept & Decrypt Share'),
+        backgroundColor: AppColors.surface,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: NeonText(
+          text: 'Принять пароль',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: AppColors.text,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (share['label'] != null)
-              Text('Label: ${share['label']}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text('Enter the share key you received from the sender:'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: keyCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Share key',
-                prefixIcon: Icon(Icons.key),
+            if (share['label'] != null) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.button.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  share['label'].toString(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.button,
+                    fontSize: 13,
+                  ),
+                ),
               ),
+              const SizedBox(height: 12),
+            ],
+            Text(
+              'Введите ключ, полученный от отправителя:',
+              style: TextStyle(
+                  fontSize: 13, color: AppColors.text.withOpacity(0.7)),
+            ),
+            const SizedBox(height: 10),
+            _StyledField(
+              controller: keyCtrl,
+              hint: 'Вставьте ключ здесь',
+              icon: Icons.key_rounded,
             ),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (keyCtrl.text.trim().isEmpty) return;
-              Navigator.pop(ctx);
-              await _acceptShare(share['id'] as int, keyCtrl.text.trim());
-            },
-            child: const Text('Decrypt'),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                        color: AppColors.text.withOpacity(0.2)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Отмена',
+                      style: TextStyle(
+                          color: AppColors.text.withOpacity(0.7))),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (keyCtrl.text.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    await _acceptShare(
+                        share['id'] as int, keyCtrl.text.trim());
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.button,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Расшифровать'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -274,121 +519,235 @@ class _SharingScreenState extends State<SharingScreen>
       _showDecryptedResult(plaintext);
       await _load();
     } catch (e) {
-      _showError('Failed: $e');
+      _showError('Ошибка: $e');
     }
   }
 
   void _showDecryptedResult(String plaintext) {
+    bool _copied = false;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Decrypted Password'),
-        content: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.green.shade50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20)),
+          title: Row(
             children: [
-              Expanded(
-                child: SelectableText(
-                  plaintext,
-                  style: const TextStyle(fontFamily: 'monospace'),
+              Icon(Icons.lock_open_rounded, color: Colors.green, size: 22),
+              const SizedBox(width: 8),
+              NeonText(
+                text: 'Расшифрован',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.text,
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: plaintext));
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('Copied')),
-                  );
-                },
               ),
             ],
           ),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+          content: ThemedContainer(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      plaintext,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        color: AppColors.text,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: plaintext));
+                      setDlg(() => _copied = true);
+                      Future.delayed(const Duration(seconds: 2), () {
+                        if (ctx.mounted) setDlg(() => _copied = false);
+                      });
+                    },
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        _copied ? Icons.check_circle : Icons.copy_rounded,
+                        key: ValueKey(_copied),
+                        color: _copied ? Colors.green : AppColors.button,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.button,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Закрыть'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Secure Sharing'),
-        bottom: TabBar(
-          controller: _tabs,
-          tabs: const [
-            Tab(icon: Icon(Icons.inbox), text: 'Received'),
-            Tab(icon: Icon(Icons.send), text: 'Sent'),
+    return ThemedBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: ThemeManager.currentTheme == AppTheme.dark
+              ? AppColors.background
+              : Colors.black.withOpacity(0.3),
+          elevation: 0,
+          title: NeonText(
+            text: 'Поделиться',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          bottom: TabBar(
+            controller: _tabs,
+            indicatorColor: AppColors.button,
+            labelColor: AppColors.button,
+            unselectedLabelColor: AppColors.text.withOpacity(0.5),
+            tabs: const [
+              Tab(icon: Icon(Icons.inbox_rounded), text: 'Входящие'),
+              Tab(icon: Icon(Icons.send_rounded), text: 'Исходящие'),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.refresh_rounded, color: AppColors.text),
+              onPressed: _load,
+              tooltip: 'Обновить',
+            ),
           ],
         ),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-        ],
+        floatingActionButton:
+            widget.initialEntry == null
+                ? FloatingActionButton.extended(
+                    onPressed: () => _showCreateShareSheet(),
+                    backgroundColor: AppColors.button,
+                    foregroundColor: Colors.white,
+                    icon: const Icon(Icons.share_rounded),
+                    label: const Text('Поделиться',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  )
+                : null,
+        body: _loading
+            ? Center(
+                child:
+                    CircularProgressIndicator(color: AppColors.button))
+            : TabBarView(
+                controller: _tabs,
+                children: [
+                  _buildIncomingList(),
+                  _buildOutgoingList(),
+                ],
+              ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateShareDialog,
-        icon: const Icon(Icons.share),
-        label: const Text('Share Password'),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabs,
-              children: [
-                _buildIncomingList(),
-                _buildOutgoingList(),
-              ],
-            ),
     );
   }
 
   Widget _buildIncomingList() {
     if (_incoming.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.inbox, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('No shares received yet'),
-          ],
-        ),
+      return _buildEmptyState(
+        icon: Icons.inbox_rounded,
+        title: 'Нет входящих',
+        subtitle: 'Когда кто-то поделится паролем,\nон появится здесь',
       );
     }
     return RefreshIndicator(
       onRefresh: _load,
+      color: AppColors.button,
       child: ListView.separated(
+        padding: const EdgeInsets.all(16),
         itemCount: _incoming.length,
-        separatorBuilder: (_, __) => const Divider(),
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (_, i) {
           final s = _incoming[i];
-          final status = s['status'] as String;
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor:
-                  status == 'accepted' ? Colors.green : Colors.orange,
-              child: const Icon(Icons.lock_open, color: Colors.white),
+          final isPending = s['status'] == 'pending';
+          return ThemedContainer(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: (isPending ? Colors.orange : Colors.green)
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(
+                      isPending
+                          ? Icons.lock_clock_outlined
+                          : Icons.lock_open_rounded,
+                      color: isPending ? Colors.orange : Colors.green,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s['label']?.toString() ?? 'Общий пароль',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isPending ? 'Ожидает принятия' : 'Принято',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isPending
+                                ? Colors.orange
+                                : Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isPending)
+                    ElevatedButton(
+                      onPressed: () => _showAcceptDialog(s),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.button,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('Принять',
+                          style: TextStyle(fontSize: 13)),
+                    ),
+                ],
+              ),
             ),
-            title: Text(s['label']?.toString() ?? 'Shared password'),
-            subtitle: Text('Status: $status'),
-            trailing: status == 'pending'
-                ? ElevatedButton(
-                    onPressed: () => _showAcceptDialog(s),
-                    child: const Text('Accept'),
-                  )
-                : null,
           );
         },
       ),
@@ -397,56 +756,191 @@ class _SharingScreenState extends State<SharingScreen>
 
   Widget _buildOutgoingList() {
     if (_outgoing.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.send, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('No shares sent yet'),
-          ],
-        ),
+      return _buildEmptyState(
+        icon: Icons.send_rounded,
+        title: 'Нет исходящих',
+        subtitle: 'Поделитесь паролем — нажмите\n«Поделиться» в списке паролей',
       );
     }
     return RefreshIndicator(
       onRefresh: _load,
+      color: AppColors.button,
       child: ListView.separated(
+        padding: const EdgeInsets.all(16),
         itemCount: _outgoing.length,
-        separatorBuilder: (_, __) => const Divider(),
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (_, i) {
           final s = _outgoing[i];
-          return ListTile(
-            leading: const CircleAvatar(
-              child: Icon(Icons.share),
+          final isRevoked = s['status'] == 'revoked';
+          return ThemedContainer(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: (isRevoked
+                              ? AppColors.text.withOpacity(0.1)
+                              : AppColors.button.withOpacity(0.12)),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(
+                      isRevoked
+                          ? Icons.block_rounded
+                          : Icons.share_rounded,
+                      color: isRevoked
+                          ? AppColors.text.withOpacity(0.4)
+                          : AppColors.button,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s['label']?.toString() ?? 'Пароль',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Кому: ${s['recipient_login'] ?? '—'}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.text.withOpacity(0.55),
+                          ),
+                        ),
+                        if (s['expires_at'] != null)
+                          Text(
+                            'До: ${_formatDate(s['expires_at'].toString())}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.text.withOpacity(0.4),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (!isRevoked)
+                    IconButton(
+                      icon: Icon(Icons.cancel_outlined,
+                          color: AppColors.text.withOpacity(0.4), size: 20),
+                      tooltip: 'Отозвать',
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            backgroundColor: AppColors.surface,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            title: NeonText(
+                                text: 'Отозвать доступ?',
+                                style: TextStyle(color: AppColors.text)),
+                            content: Text(
+                              'Получатель больше не сможет расшифровать пароль.',
+                              style: TextStyle(
+                                  color: AppColors.text.withOpacity(0.7)),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(c, false),
+                                child: Text('Отмена',
+                                    style: TextStyle(
+                                        color:
+                                            AppColors.text.withOpacity(0.6))),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(c, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.error,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: const Text('Отозвать'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (ok == true) {
+                          try {
+                            await _sharing.revokeShare(s['id'] as int);
+                            await _load();
+                          } catch (e) {
+                            _showError('Ошибка: $e');
+                          }
+                        }
+                      },
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        'Отозван',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.text.withOpacity(0.35),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-            title: Text(s['label']?.toString() ?? 'Shared password'),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('To: ${s['recipient_login']}'),
-                Text('Status: ${s['status']}'),
-                if (s['expires_at'] != null)
-                  Text('Expires: ${s['expires_at']}',
-                      style: const TextStyle(fontSize: 11)),
-              ],
-            ),
-            isThreeLine: true,
-            trailing: s['status'] != 'revoked'
-                ? IconButton(
-                    icon: const Icon(Icons.cancel, color: Colors.red),
-                    tooltip: 'Revoke',
-                    onPressed: () async {
-                      try {
-                        await _sharing.revokeShare(s['id'] as int);
-                        await _load();
-                      } catch (e) {
-                        _showError('Revoke failed: $e');
-                      }
-                    },
-                  )
-                : const Icon(Icons.block, color: Colors.grey),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildEmptyState({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.button.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon,
+                  size: 40, color: AppColors.button.withOpacity(0.5)),
+            ),
+            const SizedBox(height: 20),
+            NeonText(
+              text: title,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.text.withOpacity(0.5),
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -454,7 +948,73 @@ class _SharingScreenState extends State<SharingScreen>
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+      ),
+    );
+  }
+
+  String _formatDate(String iso) {
+    try {
+      final d = DateTime.parse(iso).toLocal();
+      return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+}
+
+// ── Small helper widgets ──────────────────────────────────────────────────────
+
+class _SheetLabel extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  const _SheetLabel({required this.label, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: AppColors.button.withOpacity(0.8)),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.text.withOpacity(0.6),
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StyledField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  final IconData icon;
+  const _StyledField(
+      {required this.controller, required this.hint, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return ThemedContainer(
+      child: TextField(
+        controller: controller,
+        style: TextStyle(color: AppColors.text, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle:
+              TextStyle(color: AppColors.text.withOpacity(0.35), fontSize: 14),
+          prefixIcon: Icon(icon, color: AppColors.button.withOpacity(0.7), size: 18),
+          border: InputBorder.none,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        ),
+      ),
     );
   }
 }
