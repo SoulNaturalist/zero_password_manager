@@ -1,4 +1,4 @@
-import 'package:cryptography/cryptography.dart';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -66,38 +66,44 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
   }
 
   String _generatePasswordString(int length) {
-    if (length < 14) length = 24;
-    
-    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const lower = 'abcdefghijklmnopqrstuvwxyz';
-    const digits = '0123456789';
-    const symbols = '!@#\$%^&*()_+-=';
-    
-    final allChars = upper + lower + digits + symbols;
-    
-    // Ensure at least one of each character type
-    final password = <String>[
-      upper[_randomInt(upper.length)],
-      lower[_randomInt(lower.length)],
-      digits[_randomInt(digits.length)],
-      symbols[_randomInt(symbols.length)],
-    ];
-    
-    // Fill the rest randomly
-    for (int i = 4; i < length; i++) {
-      password.add(allChars[_randomInt(allChars.length)]);
-    }
-    
-    // Shuffle to avoid predictable pattern
-    password.shuffle();
-    
-    return password.join();
-  }
+    if (length < 24) length = 24;
 
-  int _randomInt(int max) {
-    // Use a simple pseudo-random generator for client-side generation
-    final now = DateTime.now().microsecondsSinceEpoch;
-    return (now % max).abs();
+    const upper   = 'ABCDEFGHJKLMNPQRSTUVWXYZ';   // no I/O (ambiguous)
+    const lower   = 'abcdefghjkmnpqrstuvwxyz';     // no i/l/o
+    const digits  = '23456789';                    // no 0/1
+    const symbols = r'!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+    final rng = Random.secure();
+
+    int pick(String charset) => rng.nextInt(charset.length);
+
+    // Guarantee at least two of each required character class.
+    final mandatory = [
+      upper[pick(upper)],
+      upper[pick(upper)],
+      lower[pick(lower)],
+      lower[pick(lower)],
+      digits[pick(digits)],
+      digits[pick(digits)],
+      symbols[pick(symbols)],
+      symbols[pick(symbols)],
+    ];
+
+    final allChars = upper + lower + digits + symbols;
+    final password = List<String>.from(mandatory);
+    while (password.length < length) {
+      password.add(allChars[pick(allChars)]);
+    }
+
+    // Fisher-Yates shuffle using the same CSPRNG.
+    for (int i = password.length - 1; i > 0; i--) {
+      final j = rng.nextInt(i + 1);
+      final tmp = password[i];
+      password[i] = password[j];
+      password[j] = tmp;
+    }
+
+    return password.join();
   }
 
   Future<void> _register() async {
@@ -140,6 +146,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
             login: data['login'],
             initialSecret: data['totp_secret'],
             initialOtpUri: data['totp_uri'],
+            enrollmentToken: data['access_token'],
           ),
         );
 

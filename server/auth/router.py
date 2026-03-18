@@ -131,6 +131,12 @@ def register(
         name=new_user.login, issuer_name="ZeroVault"
     )
 
+    # Mint a short-lived enrollment token so the client can call /confirm_2fa
+    # without a full login cycle. The token is valid for one access-token TTL
+    # and TOTP is still disabled until the user confirms the code.
+    enrollment_device_id = generate_device_id(request)
+    enrollment_token = create_access_token(new_user, enrollment_device_id)
+
     audit(db, new_user.id, "register")
 
     return UserResponse(
@@ -138,6 +144,8 @@ def register(
         login=new_user.login,
         salt=new_user.salt,
         totp_uri=totp_uri,
+        totp_secret=secret,
+        access_token=enrollment_token,
     )
 
 

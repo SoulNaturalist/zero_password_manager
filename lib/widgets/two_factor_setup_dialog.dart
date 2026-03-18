@@ -14,6 +14,9 @@ class TwoFactorSetupDialog extends StatefulWidget {
   final String login;
   final String? initialSecret;
   final String? initialOtpUri;
+  /// Bearer token used to authenticate /confirm_2fa during the enrollment
+  /// flow (before the user has logged in for the first time).
+  final String? enrollmentToken;
 
   const TwoFactorSetupDialog({
     super.key,
@@ -21,6 +24,7 @@ class TwoFactorSetupDialog extends StatefulWidget {
     required this.login,
     this.initialSecret,
     this.initialOtpUri,
+    this.enrollmentToken,
   });
 
   @override
@@ -48,9 +52,13 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
 
   Future<void> _fetchSetupData() async {
     try {
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      if (widget.enrollmentToken != null) {
+        headers['Authorization'] = 'Bearer ${widget.enrollmentToken}';
+      }
       final response = await http.post(
         Uri.parse(AppConfig.setup2faUrl),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({'user_id': widget.userId}),
       );
 
@@ -85,10 +93,14 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
     final code = _formKey.currentState!.value['code'];
 
     try {
+      final headers = <String, String>{'Content-Type': 'application/json'};
+      if (widget.enrollmentToken != null) {
+        headers['Authorization'] = 'Bearer ${widget.enrollmentToken}';
+      }
       final response = await http.post(
         Uri.parse(AppConfig.confirm2faUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'user_id': widget.userId, 'code': code}),
+        headers: headers,
+        body: json.encode({'code': code}),
       );
 
       if (response.statusCode == 200) {

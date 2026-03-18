@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     salt: str
     totp_secret: Optional[str] = None
     totp_uri: Optional[str] = None
+    access_token: Optional[str] = None  # short-lived enrollment token
 
     model_config = {"from_attributes": True}
 
