@@ -13,7 +13,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 ///   CWE-284 — failed-attempt counter + lockout timestamp persisted in secure storage
 class PinSecurity {
   static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: false,  // Use KeyStore+SharedPreferences (API 18+, more compatible)
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
   );
 
   // Storage keys
