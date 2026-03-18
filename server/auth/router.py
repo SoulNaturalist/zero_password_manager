@@ -429,14 +429,16 @@ async def confirm_2fa(
     try:
         totp_secret = decrypt_totp(current_user.totp_secret, current_user.id)
         totp_obj = pyotp.TOTP(totp_secret)
-        valid = any(
-            totp_obj.verify(body.code, for_time=datetime.utcnow() + timedelta(seconds=offset), valid_window=1)
-            for offset in (-30, 0, 30)
-        )
+        # Wide window: ±3 steps (±90 s) — covers reasonable clock drift
+        valid = totp_obj.verify(body.code, valid_window=3)
         if not valid:
+            # Debug: show expected codes so we can tell if it's a clock/secret mismatch
+            now = datetime.utcnow()
+            expected = {str(offset): totp_obj.at(now + timedelta(seconds=offset))
+                        for offset in (-90, -60, -30, 0, 30, 60, 90)}
             _log.warning(
-                "confirm_2fa: invalid TOTP code for user_id=%s ip=%s",
-                current_user.id, ip_address,
+                "confirm_2fa: invalid TOTP for user_id=%s ip=%s | received=%r expected(±90s)=%s",
+                current_user.id, ip_address, body.code, expected,
             )
             handle_failed_otp_attempt(db, current_user, ip_address)
             log_security_event(db, current_user.id, "2fa_setup_failed",
