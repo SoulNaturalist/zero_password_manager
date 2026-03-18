@@ -25,10 +25,10 @@ class PinScreen extends StatefulWidget {
 
 class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
   final List<TextEditingController> _controllers = List.generate(
-    4,
+    6,
     (index) => TextEditingController(),
   );
-  final List<FocusNode> _focusNodes = List.generate(4, (index) => FocusNode());
+  final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
 
   late AnimationController _animationController;
   late AnimationController _shakeController;
@@ -81,9 +81,9 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     _checkLockout();
     _checkBiometricAvailability();
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
       _controllers[i].addListener(() {
-        if (_controllers[i].text.length == 1 && i < 3) {
+        if (_controllers[i].text.length == 1 && i < 5) {
           _focusNodes[i + 1].requestFocus();
         }
       });
@@ -142,8 +142,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
   // ── PIN input ─────────────────────────────────────────────────────────────
 
   Uint8List _collectAndClearControllers() {
-    final bytes = Uint8List(4);
-    for (int i = 0; i < 4; i++) {
+    final bytes = Uint8List(6);
+    for (int i = 0; i < 6; i++) {
       final text = _controllers[i].text;
       bytes[i] = text.isNotEmpty ? text.codeUnitAt(0) : 0;
       _controllers[i].clear();
@@ -155,7 +155,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     final entered = _controllers.map((c) => c.text).join();
     setState(() => _errorMessage = null);
 
-    if (entered.length == 4 && !_isLocked) {
+    if (entered.length == 6 && !_isLocked) {
       _pinBytes = _collectAndClearControllers();
       _verifyPin();
     }
@@ -403,10 +403,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                         offset: Offset(_shakeAnimation.value * 10, 0),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(4, (index) {
+                          children: List.generate(6, (index) {
                             return Container(
-                              width: 60,
-                              height: 60,
+                              width: 46,
+                              height: 52,
                               decoration: BoxDecoration(
                                 color: AppColors.input,
                                 borderRadius: BorderRadius.circular(12),

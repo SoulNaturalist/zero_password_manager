@@ -21,10 +21,10 @@ class SetupPinScreen extends StatefulWidget {
 class _SetupPinScreenState extends State<SetupPinScreen>
     with TickerProviderStateMixin {
   final List<TextEditingController> _controllers = List.generate(
-    4,
+    6,
     (index) => TextEditingController(),
   );
-  final List<FocusNode> _focusNodes = List.generate(4, (index) => FocusNode());
+  final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -60,9 +60,9 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
     _animationController.forward();
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
       _controllers[i].addListener(() {
-        if (_controllers[i].text.length == 1 && i < 3) {
+        if (_controllers[i].text.length == 1 && i < 5) {
           _focusNodes[i + 1].requestFocus();
         }
       });
@@ -84,8 +84,8 @@ class _SetupPinScreenState extends State<SetupPinScreen>
   }
 
   Uint8List _collectAndClearControllers() {
-    final bytes = Uint8List(4);
-    for (int i = 0; i < 4; i++) {
+    final bytes = Uint8List(6);
+    for (int i = 0; i < 6; i++) {
       final text = _controllers[i].text;
       bytes[i] = text.isNotEmpty ? text.codeUnitAt(0) : 0;
       _controllers[i].clear();
@@ -97,7 +97,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     final entered = _controllers.map((c) => c.text).join();
     setState(() => _errorMessage = null);
 
-    if (entered.length == 4) {
+    if (entered.length == 6) {
       _pinBytes = _collectAndClearControllers();
       _proceedToConfirm();
     }
@@ -112,7 +112,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     final entered = _controllers.map((c) => c.text).join();
     setState(() => _errorMessage = null);
 
-    if (entered.length == 4) {
+    if (entered.length == 6) {
       _confirmPinBytes = _collectAndClearControllers();
       _savePin();
     }
@@ -150,7 +150,8 @@ class _SetupPinScreenState extends State<SetupPinScreen>
       _pinBytes = Uint8List(0);
 
       _showSuccessAnimation();
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('PIN save error: $e\n$st');
       setState(() {
         _errorMessage = 'Ошибка сохранения PIN-кода';
         _isLoading = false;
@@ -241,7 +242,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                   Text(
                     _isConfirming
                         ? 'Повторите ввод для подтверждения'
-                        : 'Создайте 4-значный PIN-код для быстрого доступа',
+                        : 'Создайте 6-значный PIN-код для быстрого доступа',
                     style: const TextStyle(fontSize: 16, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
@@ -250,10 +251,10 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(4, (index) {
+                    children: List.generate(6, (index) {
                       return Container(
-                        width: 60,
-                        height: 60,
+                        width: 46,
+                        height: 52,
                         decoration: BoxDecoration(
                           color: AppColors.input,
                           borderRadius: BorderRadius.circular(12),
@@ -331,7 +332,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                   const SizedBox(height: 40),
 
                   const Text(
-                    'PIN-код должен содержать 4 цифры',
+                    'PIN-код должен содержать 6 цифр',
                     style: TextStyle(fontSize: 14, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
