@@ -60,10 +60,10 @@ class VaultService {
     _masterKey = await _crypto.deriveMasterKey(password, salt);
 
     if (await BiometricService.isBiometricEnabled()) {
-      final keyBytes = await _masterKey!.extractBytes();
+      final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
       await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
       // Wipe extracted bytes immediately after use
-      (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+      keyBytes.fillRange(0, keyBytes.length, 0);
     }
   }
 
@@ -90,12 +90,12 @@ class VaultService {
     }
 
     final pinKey      = await _crypto.deriveMasterKey(pin, salt);
-    final keyBytes    = await _masterKey!.extractBytes();
+    final keyBytes    = Uint8List.fromList(await _masterKey!.extractBytes());
     final keyB64      = base64.encode(keyBytes);
     final encryptedKey = await _crypto.encrypt(pinKey, keyB64);
 
     // Wipe key bytes after encryption
-    (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+    keyBytes.fillRange(0, keyBytes.length, 0);
     // Native wipe of temporary base64 string
     await nativeWipe(keyB64);
 
@@ -117,11 +117,11 @@ class VaultService {
     }
 
     final pinKey       = await _crypto.deriveMasterKeyFromBytes(pinBytes, salt);
-    final keyBytes     = await _masterKey!.extractBytes();
+    final keyBytes     = Uint8List.fromList(await _masterKey!.extractBytes());
     final keyB64       = base64.encode(keyBytes);
     final encryptedKey = await _crypto.encrypt(pinKey, keyB64);
 
-    (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
+    keyBytes.fillRange(0, keyBytes.length, 0);
     await nativeWipe(keyB64);
 
     await _storage.write(key: _storageKey, value: encryptedKey);
