@@ -114,6 +114,8 @@ flutter_01.log
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 
 # License files
 com.android.builder.sdk.LicenceNotAccepted*

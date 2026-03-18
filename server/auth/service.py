@@ -190,7 +190,7 @@ def authenticate_user(db: Session, login: str, password: str):
     
     return user
 
-def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address: Optional[str] = None) -> None:
+def verify_hardened_otp(db: Session, user: User, otp: Optional[str], ip_address: Optional[str] = None, **kwargs) -> None:
     """
     Verify a TOTP code with drift compensation, atomic replay protection, and account lockout.
 
