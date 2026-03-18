@@ -90,11 +90,22 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           return;
         }
 
+        if (data['access_token'] == null) {
+          if (!mounted) return;
+          _formKey.currentState?.fields['password']?.invalidate('Неверный логин или пароль');
+          _playErrorShake();
+          return;
+        }
+
         await _handleSuccessfulLogin(data, password);
+      } else if (response.statusCode == 401) {
+        if (!mounted) return;
+        _formKey.currentState?.fields['password']?.invalidate('Неверный логин или пароль');
+        _playErrorShake();
       } else {
         final error = ServerError.fromJson(response.body, response.statusCode);
         if (!mounted) return;
-        
+
         FormErrorHandler.applyErrors(
           formKey: _formKey,
           error: error,

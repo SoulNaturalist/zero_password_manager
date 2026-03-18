@@ -205,13 +205,11 @@ async def login_phase1(
         if attempts >= BRUTE_FORCE_MAX:
              SecurityManager.block_ip(db, ip_address, timedelta(hours=3))
             
-        log_security_event(db, user.id if user else None, "failed_login", 
+        log_security_event(db, user.id if user else None, "failed_login",
             {"user_exists": user_exists, "ip": ip_address, "attempts": attempts}, ip_address)
-        
-        response = LoginPhase1Response(
-            requires_mfa=False,
-            salt=secrets.token_hex(16)
-        )
+
+        constant_time_response(start_time)
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     else:
         # Успех
         log_security_event(db, user.id, "password_verified", {"ip": ip_address}, ip_address)
