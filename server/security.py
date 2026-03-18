@@ -340,6 +340,9 @@ class SecurityManager:
 
     @staticmethod
     def is_ip_blocked(db: Session, ip: str) -> bool:
+        if SecurityManager.is_ip_whitelisted(ip):
+            return False
+            
         block = db.query(IPBlock).filter(
             IPBlock.ip == ip,
             IPBlock.until > datetime.now(timezone.utc)
@@ -348,6 +351,9 @@ class SecurityManager:
 
     @staticmethod
     def record_failed_attempt(db: Session, ip: str):
+        if SecurityManager.is_ip_whitelisted(ip):
+            return
+            
         attempt = db.query(FailedAttempt).filter_by(ip=ip).first()
         if not attempt:
             attempt = FailedAttempt(ip=ip, count=0)
@@ -359,6 +365,9 @@ class SecurityManager:
 
     @staticmethod
     def block_ip(db: Session, ip: str, duration: timedelta, reason: str = "Unknown"):
+        if SecurityManager.is_ip_whitelisted(ip):
+            return
+            
         block = IPBlock(
             ip=ip,
             until=datetime.now(timezone.utc) + duration,

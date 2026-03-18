@@ -97,6 +97,7 @@ class Settings:
     # For local development with a proxy/web, it might be http://localhost:PORT
     EXPECTED_ORIGIN: str = os.getenv("EXPECTED_ORIGIN", "http://localhost")
     ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-    WHITELIST_IPS: list[str] = os.getenv("WHITELIST_IPS", "127.0.0.1,::1").split(",")
+    _whitelist: str = os.getenv("WHITELIST_IPS", "127.0.0.1,::1")
+    WHITELIST_IPS: list[str] = [x.strip() for x in _whitelist.split(",") if x.strip()]
 
 settings = Settings()
