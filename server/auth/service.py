@@ -79,26 +79,26 @@ def is_password_strong(password: str) -> bool:
 # ── JWT ───────────────────────────────────────────────────────────────────────
 
 def create_access_token(user: User, device_id: str) -> str:
-    now = datetime.utcnow()
+    now = int(time.time())
     payload = {
         "sub": str(user.id),
         "device": device_id,
         "type": "access",
         "jti": secrets.token_hex(16),
-        "token_version": user.token_version,  # new field
+        "token_version": user.token_version,
         "iat": now,
-        "exp": now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "exp": now + int(timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES).total_seconds()),
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 def create_short_token(user_id: int) -> str:
     """Create a short-lived token for sensitive operations like seed phrase access."""
-    now = datetime.utcnow()
+    now = int(time.time())
     payload = {
         "sub": str(user_id),
         "scope": "seed_access",
         "iat": now,
-        "exp": now + timedelta(seconds=60),
+        "exp": now + 60,
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
@@ -267,12 +267,13 @@ def constant_time_response(start_time: float) -> None:
 
 def create_mfa_token(user_id: int, device_id: str) -> str:
     """Create a temporary MFA token for two-factor authentication."""
+    now = int(time.time())
     payload = {
         "sub": str(user_id),
         "device": device_id,
         "type": "mfa",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(minutes=2),
+        "iat": now,
+        "exp": now + 120,  # 2 minutes
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
 
