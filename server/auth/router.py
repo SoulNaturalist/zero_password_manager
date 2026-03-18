@@ -1,6 +1,6 @@
 import asyncio
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..audit.service import record as audit
 from ..database import get_db
-from ..models import User
+from ..models import FailedAttempt, User
 from ..utils import get_client_ip
 from .dependencies import get_current_user
 from .exceptions import (
@@ -36,7 +36,9 @@ from .service import (
     create_refresh_token,
     create_user,
     decode_token,
+    decrypt_totp,
     get_user_by_login,
+    rotate_refresh_token,
     update_user_totp,
     verify_hardened_otp,
     verify_password,
@@ -166,7 +168,10 @@ async def login_phase1(
     user_exists = bool(user)
     
     # 4. Защита от перебора
-    fake_hash = "$argon2id$v=19$m=131072,t=4,p=2$fake$fakehash"
+    # A valid (but unverifiable) argon2id hash used purely for constant-time
+    # comparison when the login doesn't exist (prevents user-enumeration via
+    # timing). Salt must decode to >= 8 bytes; hash must be >= 12 bytes.
+    fake_hash = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     password_valid = False
     
     if user_exists:
@@ -177,7 +182,6 @@ async def login_phase1(
     # 5. Логика блокировки
     if not password_valid:
         SecurityManager.record_failed_attempt(db, ip_address)
-        from ..models import FailedAttempt
         attempt = db.query(FailedAttempt).filter_by(ip=ip_address).first()
         attempts = attempt.count if attempt else 0
         
@@ -219,8 +223,12 @@ async def login_phase1(
             
             log_security_event(db, user.id, "login_success", {"device_id": device_id, "ip": ip_address}, ip_address)
             
-            response = LoginPhase1Response(requires_mfa=False, salt=user.salt)
-            response.headers = {"X-Access-Token": access_token, "X-Refresh-Token": refresh_token}
+            response = LoginPhase1Response(
+                requires_mfa=False,
+                salt=user.salt,
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
     
     constant_time_response(start_time)
     return response
@@ -389,20 +397,34 @@ async def confirm_2fa(
     # Здесь мы можем быть уверены, что current_user аутентифицирован
     
     # Проверка TOTP
+    # verify_hardened_otp skips when totp_enabled=False, so for the
+    # enrollment step we verify the code directly against the stored secret.
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="2FA not set up. Call /setup_2fa first.")
     try:
-        verify_hardened_otp(db, current_user, body.code, ip_address)
+        totp_secret = decrypt_totp(current_user.totp_secret, current_user.id)
+        totp_obj = pyotp.TOTP(totp_secret)
+        valid = any(
+            totp_obj.verify(body.code, for_time=datetime.utcnow() + timedelta(seconds=offset), valid_window=1)
+            for offset in (-30, 0, 30)
+        )
+        if not valid:
+            handle_failed_otp_attempt(db, current_user, ip_address)
+            log_security_event(db, current_user.id, "2fa_setup_failed",
+                {"ip": ip_address}, ip_address)
+            constant_time_response(start_time)
+            raise HTTPException(status_code=401, detail="Invalid OTP code")
         totp_valid = True
         reset_otp_failure_counters(current_user, db)
+    except HTTPException:
+        raise
     except Exception as e:
         handle_failed_otp_attempt(db, current_user, ip_address)
-        log_security_event(db, current_user.id, "2fa_setup_failed", 
+        log_security_event(db, current_user.id, "2fa_setup_failed",
             {"error": str(e), "ip": ip_address}, ip_address)
         constant_time_response(start_time)
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid OTP code"
-        )
-    
+        raise HTTPException(status_code=401, detail="Invalid OTP code")
+
     # Включаем 2FA
     current_user.totp_enabled = True
     current_user.last_otp_ts = pyotp.TOTP(decrypt_totp(current_user.totp_secret, current_user.id)).timecode(datetime.utcnow())

@@ -149,6 +149,7 @@ class SecurityManager:
         fingerprint_data["entropy_hash"] = SecurityManager._generate_entropy_hash(entropy_sources)
 
         # Sign with server secret to prevent forgery
+        fingerprint_string = json.dumps(fingerprint_data, sort_keys=True)
         return hmac.new(
             settings.DEVICE_SECRET.encode(),
             fingerprint_string.encode(),

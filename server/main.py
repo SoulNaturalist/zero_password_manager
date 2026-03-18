@@ -61,6 +61,10 @@ def validate_base64(data: str) -> bool:
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
 
+# Apply schema migrations (add columns introduced after initial deployment)
+from .database import run_migrations
+run_migrations(engine)
+
 
 # Setup Rate Limiter
 limiter = Limiter(key_func=get_remote_address)

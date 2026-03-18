@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./zero_vault.db"
@@ -32,6 +32,23 @@ def _set_sqlite_pragmas(dbapi_connection, _connection_record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
+
+def run_migrations(engine) -> None:
+    """Add missing columns to existing tables.
+
+    SQLAlchemy's create_all() only creates tables that don't exist yet — it
+    never alters existing tables.  Any column added to a model after the
+    initial deployment must be added manually via ALTER TABLE.
+    """
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(users)"))
+        existing = {row[1] for row in result.fetchall()}
+        if "token_version" not in existing:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+            )
+            conn.commit()
 
 
 def get_db() -> Generator[Session, None, None]:

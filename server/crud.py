@@ -13,6 +13,15 @@ from .auth import service as auth
 from .config import settings
 from .database import SessionLocal
 
+def is_token_blacklisted(db: Session, jti: str) -> bool:
+    """Return True if this JWT id (jti) has been explicitly revoked.
+
+    No access-token blacklist table exists yet, so this always returns False.
+    Explicit revocation will be added in a future migration.
+    """
+    return False
+
+
 async def send_telegram_message(chat_id: str, text: str):
     """Sends a security alert to Telegram (background task)."""
     if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
