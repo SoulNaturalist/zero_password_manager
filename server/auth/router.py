@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import secrets
 from datetime import datetime, timedelta
 
@@ -7,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
+
+_log = logging.getLogger(__name__)
 
 from ..audit.service import record as audit
 from ..database import get_db
@@ -417,6 +420,10 @@ async def confirm_2fa(
             for offset in (-30, 0, 30)
         )
         if not valid:
+            _log.warning(
+                "confirm_2fa: invalid TOTP code for user_id=%s ip=%s",
+                current_user.id, ip_address,
+            )
             handle_failed_otp_attempt(db, current_user, ip_address)
             log_security_event(db, current_user.id, "2fa_setup_failed",
                 {"ip": ip_address}, ip_address)
@@ -427,6 +434,10 @@ async def confirm_2fa(
     except HTTPException:
         raise
     except Exception as e:
+        _log.exception(
+            "confirm_2fa: unexpected error during TOTP check for user_id=%s: %s",
+            current_user.id, e,
+        )
         handle_failed_otp_attempt(db, current_user, ip_address)
         log_security_event(db, current_user.id, "2fa_setup_failed",
             {"error": str(e), "ip": ip_address}, ip_address)
@@ -435,7 +446,7 @@ async def confirm_2fa(
 
     # Включаем 2FA
     current_user.totp_enabled = True
-    current_user.last_otp_ts = pyotp.TOTP(decrypt_totp(current_user.totp_secret, current_user.id)).timecode(datetime.utcnow())
+    current_user.last_otp_ts = totp_obj.timecode(datetime.utcnow())  # reuse already-decrypted totp_obj
     db.commit()
     
     # Генерация токенов

@@ -1,3 +1,4 @@
+import logging
 from typing import Callable
 
 from fastapi import Depends, HTTPException, Request, status
@@ -11,6 +12,7 @@ from .exceptions import InvalidCredentials
 from .service import decode_token, verify_hardened_otp
 
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+_log = logging.getLogger(__name__)
 
 
 def get_current_user(
@@ -24,23 +26,35 @@ def get_current_user(
     """
     from .. import crud  # local import — avoids circular module dependency
 
-    payload = decode_token(token)
+    try:
+        payload = decode_token(token)
+    except Exception as exc:
+        _log.warning("get_current_user: decode_token failed — %s", exc)
+        raise InvalidCredentials()
 
     # Reject blacklisted tokens first — before any user DB lookup so that a
     # stolen token cannot be used after the legitimate owner logs out.
     jti = payload.get("jti")
     if jti and crud.is_token_blacklisted(db, jti):
+        _log.warning("get_current_user: token jti=%s is blacklisted", jti)
         raise InvalidCredentials()
 
     user_id = payload.get("sub")
     if not user_id:
+        _log.warning("get_current_user: token missing 'sub' claim")
         raise InvalidCredentials()
 
     user = db.query(User).filter(User.id == int(user_id)).first()
     if not user:
+        _log.warning("get_current_user: user id=%s not found in DB", user_id)
         raise InvalidCredentials()
 
-    if payload.get("token_version") != user.token_version:
+    token_ver = payload.get("token_version")
+    if token_ver != user.token_version:
+        _log.warning(
+            "get_current_user: token_version mismatch — token=%r db=%r user_id=%s",
+            token_ver, user.token_version, user_id,
+        )
         raise InvalidCredentials()
 
     return user
