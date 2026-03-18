@@ -90,6 +90,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           return;
         }
 
+        // Server returns 200 even on wrong credentials (timing-attack prevention).
+        // Detect failure by absence of access_token.
+        if (data['access_token'] == null) {
+          _formKey.currentState?.fields['password']
+              ?.invalidate('Неверный логин или пароль');
+          _playErrorShake();
+          return;
+        }
+
         await _handleSuccessfulLogin(data, password);
       } else {
         final error = ServerError.fromJson(response.body, response.statusCode);
@@ -145,11 +154,14 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _handleSuccessfulLogin(Map<String, dynamic> data, String password) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('token', data['access_token']);
+    await prefs.setString('token', data['access_token'] as String);
+    if (data['refresh_token'] != null) {
+      await prefs.setString('refresh_token', data['refresh_token'] as String);
+    }
 
     final salt = data['salt'];
     if (salt != null) {
-      await VaultService().unlock(password, salt);
+      await VaultService().unlock(password, salt as String);
     }
 
     if (!mounted) return;
