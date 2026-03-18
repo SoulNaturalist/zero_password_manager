@@ -15,7 +15,7 @@ from ..audit.service import record as audit
 from ..database import get_db
 from ..models import FailedAttempt, User
 from ..utils import get_client_ip
-from .dependencies import get_current_user
+from .dependencies import get_current_user, get_current_user_optional
 from .exceptions import (
     InvalidOTPCode,
     InvalidRefreshToken,
@@ -391,21 +391,35 @@ async def confirm_2fa(
     request: Request,
     body: TOTPConfirmRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    bearer_user: User = Depends(get_current_user_optional),
 ):
     """
     Безопасное включение 2FA с защитой от захвата учетной записи.
-    
-    Ключевые исправления:
-    1. Проверка TOTP происходит только после успешной проверки пароля
-    2. Нет утечки информации о состоянии учетной записи
+
+    Enrollment token принимается двумя способами (для совместимости):
+      1. Заголовок «Authorization: Bearer <token>» (основной способ)
+      2. Поле «mfa_token» в теле запроса (запасной, если заголовок не доступен)
     """
     start_time = time.time()
     ip_address = get_client_ip(request)
     totp_valid = False
-    
-    # Проверка текущего пароля (уже выполнена в get_current_user)
-    # Здесь мы можем быть уверены, что current_user аутентифицирован
+
+    # Resolve the authenticated user: prefer Authorization header, fall back to body.mfa_token.
+    current_user = bearer_user
+    if current_user is None:
+        if not body.mfa_token:
+            _log.warning("confirm_2fa: no Bearer token and no mfa_token in body from ip=%s", ip_address)
+            constant_time_response(start_time)
+            raise HTTPException(status_code=401, detail="Authentication required")
+        from .dependencies import _resolve_user_from_token
+        try:
+            current_user = _resolve_user_from_token(body.mfa_token, db)
+        except Exception:
+            _log.warning("confirm_2fa: mfa_token validation failed from ip=%s", ip_address)
+            constant_time_response(start_time)
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+    # current_user теперь аутентифицирован через один из двух механизмов
     
     # Проверка TOTP
     # verify_hardened_otp skips when totp_enabled=False, so for the

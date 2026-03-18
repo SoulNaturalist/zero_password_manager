@@ -97,10 +97,17 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
       if (widget.enrollmentToken != null) {
         headers['Authorization'] = 'Bearer ${widget.enrollmentToken}';
       }
+      // Also send the enrollment token in the body as mfa_token so the server
+      // can authenticate the request even if the Authorization header is dropped
+      // by a proxy or unavailable in older app builds.
+      final body = <String, dynamic>{'code': code};
+      if (widget.enrollmentToken != null) {
+        body['mfa_token'] = widget.enrollmentToken;
+      }
       final response = await http.post(
         Uri.parse(AppConfig.confirm2faUrl),
         headers: headers,
-        body: json.encode({'code': code}),
+        body: json.encode(body),
       );
 
       if (response.statusCode == 200) {

@@ -1,5 +1,5 @@
 import logging
-from typing import Callable
+from typing import Callable, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -12,52 +12,62 @@ from .exceptions import InvalidCredentials
 from .service import decode_token, verify_hardened_otp
 
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+_oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 _log = logging.getLogger(__name__)
+
+
+def _resolve_user_from_token(token: str, db: Session) -> User:
+    """Decode a Bearer JWT and return the corresponding User. Raises InvalidCredentials on any failure."""
+    from .. import crud  # local import — avoids circular module dependency
+
+    try:
+        payload = decode_token(token)
+    except Exception as exc:
+        _log.warning("resolve_user: decode_token failed — %s", exc)
+        raise InvalidCredentials()
+
+    jti = payload.get("jti")
+    if jti and crud.is_token_blacklisted(db, jti):
+        _log.warning("resolve_user: token jti=%s is blacklisted", jti)
+        raise InvalidCredentials()
+
+    user_id = payload.get("sub")
+    if not user_id:
+        _log.warning("resolve_user: token missing 'sub' claim")
+        raise InvalidCredentials()
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        _log.warning("resolve_user: user id=%s not found in DB", user_id)
+        raise InvalidCredentials()
+
+    token_ver = payload.get("token_version")
+    if token_ver != user.token_version:
+        _log.warning(
+            "resolve_user: token_version mismatch — token=%r db=%r user_id=%s",
+            token_ver, user.token_version, user_id,
+        )
+        raise InvalidCredentials()
+
+    return user
 
 
 def get_current_user(
     token: str = Depends(_oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """Resolve a Bearer JWT to a User row. Raises 401 on any failure.
+    """Resolve a Bearer JWT to a User row. Raises 401 on any failure."""
+    return _resolve_user_from_token(token, db)
 
-    Checks the token blacklist so explicitly revoked tokens (e.g. after
-    /logout) are rejected even before their exp timestamp elapses.
-    """
-    from .. import crud  # local import — avoids circular module dependency
 
-    try:
-        payload = decode_token(token)
-    except Exception as exc:
-        _log.warning("get_current_user: decode_token failed — %s", exc)
-        raise InvalidCredentials()
-
-    # Reject blacklisted tokens first — before any user DB lookup so that a
-    # stolen token cannot be used after the legitimate owner logs out.
-    jti = payload.get("jti")
-    if jti and crud.is_token_blacklisted(db, jti):
-        _log.warning("get_current_user: token jti=%s is blacklisted", jti)
-        raise InvalidCredentials()
-
-    user_id = payload.get("sub")
-    if not user_id:
-        _log.warning("get_current_user: token missing 'sub' claim")
-        raise InvalidCredentials()
-
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user:
-        _log.warning("get_current_user: user id=%s not found in DB", user_id)
-        raise InvalidCredentials()
-
-    token_ver = payload.get("token_version")
-    if token_ver != user.token_version:
-        _log.warning(
-            "get_current_user: token_version mismatch — token=%r db=%r user_id=%s",
-            token_ver, user.token_version, user_id,
-        )
-        raise InvalidCredentials()
-
-    return user
+def get_current_user_optional(
+    token: Optional[str] = Depends(_oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Like get_current_user but returns None when no Authorization header is present."""
+    if token is None:
+        return None
+    return _resolve_user_from_token(token, db)
 
 
 def get_seed_access_user(
