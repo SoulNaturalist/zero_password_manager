@@ -19,7 +19,10 @@ class VaultService {
   SecretKey? _masterKey;
   final _crypto = CryptoService();
   final _cache  = CacheService();
-  final _storage = const FlutterSecureStorage();
+  final _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: false),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
 
   static const _storageKey = 'encrypted_master_key';
   static const _saltKey    = 'master_key_salt';
@@ -102,7 +105,7 @@ class VaultService {
   /// Stores master key encrypted with PIN bytes (avoids String creation).
   /// CWE-256: PIN bytes are never converted to a Dart String.
   Future<void> storeMasterKeyWithPinBytes(Uint8List pinBytes) async {
-    if (_masterKey == null) return;
+    if (_masterKey == null) throw StateError('Vault is locked — master key not loaded');
 
     final prefs = await SharedPreferences.getInstance();
     String? salt = prefs.getString(_saltKey);
