@@ -47,6 +47,7 @@ class AppConfig {
 
   // Методы для получения полных URL эндпоинтов
   static String get loginUrl => '$apiUrl/api/v1/login';
+  static String get loginMfaUrl => '$apiUrl/api/v1/login/mfa';
   static String get registerUrl => '$apiUrl/api/v1/register';
   static String get setup2faUrl => '$apiUrl/api/v1/setup_2fa';
   static String get confirm2faUrl => '$apiUrl/api/v1/confirm_2fa';

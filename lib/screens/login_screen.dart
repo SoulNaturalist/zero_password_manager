@@ -74,8 +74,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
-        if (data['two_fa_required'] == true) {
+
+        if (data['requires_mfa'] == true) {
           if (!mounted) return;
           final String? otpCode = await showDialog<String>(
             context: context,
@@ -83,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           );
 
           if (otpCode != null) {
-            await _loginWithOTP(login, password, otpCode);
+            await _loginWithOTP(password, otpCode, data['mfa_token'] as String);
           } else {
             setState(() => _isLoading = false);
           }
@@ -102,7 +102,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         );
         _playErrorShake();
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('Login error: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Ошибка подключения к серверу')),
@@ -112,18 +113,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<void> _loginWithOTP(String login, String password, String otp) async {
+  Future<void> _loginWithOTP(String password, String otp, String mfaToken) async {
     setState(() => _isLoading = true);
-    final devicePayload = await SecurityUtils.getDeviceSecurityPayload();
-    
+
     try {
       final response = await http.post(
-        Uri.parse(AppConfig.loginUrl),
-        headers: {'Content-Type': 'application/json', 'X-OTP': otp},
+        Uri.parse(AppConfig.loginMfaUrl),
+        headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          'login': login, 
-          'password': password,
-          'device_info': devicePayload,
+          'mfa_token': mfaToken,
+          'code': otp,
         }),
       );
 
