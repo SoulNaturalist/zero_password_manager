@@ -18,6 +18,7 @@ import '../utils/hidden_folder_service.dart';
 import '../services/vault_service.dart';
 import '../utils/memory_security.dart';
 import 'password_detail_screen.dart';
+import 'sharing_screen.dart';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -342,7 +343,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
   }
 
   void _sharePassword(Map<String, dynamic> item) {
-    Navigator.pushNamed(context, '/sharing');
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SharingScreen(initialEntry: item),
+      ),
+    );
   }
 
   // ── clipboard helpers ───────────────────────────────────────────────────────
@@ -763,7 +769,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 90,
+            height: 96,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: folders.length + 2, // +1 for "All" chip, +1 for "Add" chip
@@ -825,49 +831,83 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
       onTap: onTap,
       onLongPress: onLongPress,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 80,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        width: 76,
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.2) : AppColors.input,
-          borderRadius: BorderRadius.circular(14),
+          color: isSelected ? color.withOpacity(0.15) : AppColors.input,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color : Colors.transparent,
-            width: 1.5,
+            color: isSelected ? color : AppColors.text.withOpacity(0.06),
+            width: isSelected ? 1.5 : 1,
           ),
-          boxShadow:
-              isSelected && ThemeManager.colors.hasNeonGlow
-                  ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10)]
-                  : null,
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: color.withOpacity(
+                      ThemeManager.colors.hasNeonGlow ? 0.35 : 0.15,
+                    ),
+                    blurRadius: ThemeManager.colors.hasNeonGlow ? 12 : 6,
+                    spreadRadius: 0,
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: isSelected ? color : AppColors.text.withOpacity(0.5),
-              size: 22,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: isSelected ? color : AppColors.text.withOpacity(0.7),
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? color.withOpacity(0.25)
+                    : AppColors.text.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(10),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
+              child: Icon(
+                icon,
+                color: isSelected ? color : AppColors.text.withOpacity(0.45),
+                size: 20,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: isSelected ? color : AppColors.text.withOpacity(0.75),
+                  fontWeight:
+                      isSelected ? FontWeight.w700 : FontWeight.w500,
+                  letterSpacing: -0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 2),
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 11,
-                color:
-                    isSelected
-                        ? color.withOpacity(0.8)
-                        : AppColors.text.withOpacity(0.4),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? color.withOpacity(0.2)
+                    : AppColors.text.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? color
+                      : AppColors.text.withOpacity(0.4),
+                ),
               ),
             ),
           ],
@@ -880,12 +920,12 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
     return GestureDetector(
       onTap: () => _showFolderDialog(),
       child: Container(
-        width: 80,
+        width: 76,
         decoration: BoxDecoration(
-          color: AppColors.input.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.input,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: AppColors.text.withOpacity(0.1),
+            color: AppColors.button.withOpacity(0.25),
             width: 1,
             style: BorderStyle.solid,
           ),
@@ -893,13 +933,22 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add, color: AppColors.button, size: 24),
-            const SizedBox(height: 4),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.button.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.add, color: AppColors.button, size: 20),
+            ),
+            const SizedBox(height: 5),
             Text(
               'Новая',
               style: TextStyle(
-                fontSize: 11,
-                color: AppColors.text.withOpacity(0.7),
+                fontSize: 10.5,
+                color: AppColors.button.withOpacity(0.85),
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

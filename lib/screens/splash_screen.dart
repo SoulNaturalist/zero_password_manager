@@ -70,7 +70,10 @@ class _SplashScreenState extends State<SplashScreen> {
             if (hasPinHash) {
               return const PinScreen();
             } else {
-              return const SetupPinScreen();
+              // No PIN stored → vault cannot be unlocked from local storage.
+              // Send user to login so they re-derive the master key from their
+              // password. SetupPinScreen will be offered after a successful login.
+              return const LoginScreen();
             }
           } else {
             return const LoginScreen();
