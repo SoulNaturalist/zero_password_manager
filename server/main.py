@@ -40,7 +40,7 @@ from .auth.service import verify_hardened_otp
 from .config import settings
 from .database import engine, get_db
 import logging
-from .utils import get_favicon_url, get_client_ip, EncryptionService
+from .utils import get_favicon_url, EncryptionService
 from .auth.dependencies import get_current_user, get_seed_access_user
 from .middleware import SecurityMiddleware, ProxyHeadersMiddleware
 
@@ -268,23 +268,6 @@ def set_seed_phrase(
     
     crud.audit_event(db, current_user.id, "seed_phrase_updated")
     return {"success": True}
-
-
-@app.post("/refresh")
-@limiter.limit("5/minute")
-def refresh_token(request: Request, payload: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    token = payload.get("refresh_token")
-    if not token:
-        crud.audit_event(db, None, "refresh_token_failed", {"reason": "token_missing"}, ip=request.client.host, background_tasks=background_tasks)
-        raise HTTPException(status_code=400, detail="Refresh token missing")
-
-    try:
-        new_access, new_refresh = auth_service.rotate_refresh_token(db, token)
-        crud.audit_event(db, None, "token_refreshed", ip=request.client.host, background_tasks=background_tasks)
-        return {"access_token": new_access, "refresh_token": new_refresh, "token_type": "bearer"}
-    except Exception as e:
-        crud.audit_event(db, None, "refresh_token_failed", {"reason": str(e)}, ip=request.client.host, background_tasks=background_tasks)
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
 @app.get("/passwords", response_model=List[schemas.PasswordResponse])
@@ -595,6 +578,19 @@ def confirm_backend_change(
 
 # ── WebAuthn Endpoints ────────────────────────────────────────────────────────
 
+def _get_webauthn_rp_id() -> str:
+    return settings.RP_ID
+
+
+def _get_webauthn_origin(request: Request) -> str:
+    origin = request.headers.get("origin")
+    if not origin:
+        return settings.EXPECTED_ORIGIN
+    if origin not in settings.WEBAUTHN_ALLOWED_ORIGINS:
+        raise HTTPException(status_code=400, detail="Invalid origin")
+    return origin
+
+
 @app.post("/webauthn/register/options")
 @limiter.limit("5/minute")
 async def webauthn_register_options(
@@ -603,8 +599,7 @@ async def webauthn_register_options(
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db)
 ):
-    host = request.headers.get("host", "localhost")
-    rp_id = host.split(":")[0]
+    rp_id = _get_webauthn_rp_id()
 
     options = generate_registration_options(
         rp_id=rp_id,
@@ -634,9 +629,8 @@ async def webauthn_register_verify(
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db)
 ):
-    host = request.headers.get("host", "localhost")
-    rp_id = host.split(":")[0]
-    expected_origin = request.headers.get("origin", settings.EXPECTED_ORIGIN)
+    rp_id = _get_webauthn_rp_id()
+    expected_origin = _get_webauthn_origin(request)
 
     challenge_data = crud.get_challenge(db, verify_data.registration_response.get("challenge"))
     if not challenge_data or challenge_data.type != "registration":
@@ -688,8 +682,7 @@ async def webauthn_login_options(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    host = request.headers.get("host", "localhost")
-    rp_id = host.split(":")[0]
+    rp_id = _get_webauthn_rp_id()
 
     options = generate_authentication_options(
         rp_id=rp_id,
@@ -712,9 +705,8 @@ async def webauthn_login_verify(
     verify_data: schemas.WebAuthnLoginVerify,
     db: Session = Depends(get_db)
 ):
-    host = request.headers.get("host", "localhost")
-    rp_id = host.split(":")[0]
-    expected_origin = request.headers.get("origin", settings.EXPECTED_ORIGIN)
+    rp_id = _get_webauthn_rp_id()
+    expected_origin = _get_webauthn_origin(request)
 
     common_error = HTTPException(status_code=400, detail="Authentication failed")
 

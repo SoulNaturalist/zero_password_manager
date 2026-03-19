@@ -102,16 +102,14 @@ class TestLogin:
     def test_wrong_password_does_not_return_tokens(self, client):
         _register(client)
         r = _login(client, password="WrongPass!12345#Z")
-        assert r.status_code == 200
-        data = r.json()
-        assert not data.get("access_token")
+        assert r.status_code == 401
+        assert "access_token" not in r.text
 
     def test_nonexistent_user_does_not_leak_existence(self, client):
         r = _login(client, login="ghost")
         # Must not 500 and must not reveal "user not found"
-        assert r.status_code == 200
-        data = r.json()
-        assert not data.get("access_token")
+        assert r.status_code == 401
+        assert "user not found" not in r.text.lower()
 
 
 # ---------------------------------------------------------------------------
