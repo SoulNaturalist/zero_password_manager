@@ -328,13 +328,18 @@ class SecurityManager:
 
     @staticmethod
     def is_ip_whitelisted(ip: str) -> bool:
-        if ip in settings.WHITELIST_IPS:
-            return True
-            
         try:
             addr = ipaddress.ip_address(ip)
-            # Allow private network (192.168.x.x, 10.x.x.x, etc), loopback, and link-local
-            return addr.is_private or addr.is_loopback or addr.is_link_local
+            for entry in settings.WHITELIST_IPS:
+                try:
+                    if "/" in entry:
+                        if addr in ipaddress.ip_network(entry, strict=False):
+                            return True
+                    elif ip == entry:
+                        return True
+                except ValueError:
+                    continue
+            return False
         except ValueError:
             return False
 

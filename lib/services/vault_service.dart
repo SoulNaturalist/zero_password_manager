@@ -77,6 +77,24 @@ class VaultService {
     return false;
   }
 
+  Map<String, dynamic> _buildEncryptedMetadata({
+    required String name,
+    required String url,
+    required String login,
+    String? seedPhrase,
+  }) {
+    final metadata = <String, dynamic>{
+      'site_url': url,
+      'site_login': login,
+      'name': name,
+    };
+    final trimmedSeed = seedPhrase?.trim();
+    if (trimmedSeed != null && trimmedSeed.isNotEmpty) {
+      metadata['seed_phrase'] = trimmedSeed;
+    }
+    return metadata;
+  }
+
   Future<void> storeMasterKeyWithPin(String pin) async {
     if (_masterKey == null) return;
 
@@ -165,36 +183,6 @@ class VaultService {
     }
   }
 
-  // ── No-PIN master key storage (device-keystore backed, no user secret) ───────
-  // Used when the user opts out of PIN — the master key is still protected by
-  // the Android Keystore / iOS Secure Enclave at the OS level.
-  static const _noPinStorageKey = 'master_key_no_pin';
-
-  /// Persist master key without a user PIN. Only call when the vault is unlocked.
-  Future<void> storeNoPinMasterKey() async {
-    if (_masterKey == null) return;
-    final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
-    await _storage.write(key: _noPinStorageKey, value: base64.encode(keyBytes));
-    keyBytes.fillRange(0, keyBytes.length, 0);
-  }
-
-  /// Restore master key from no-PIN storage. Returns true on success.
-  Future<bool> loadNoPinMasterKey() async {
-    final stored = await _storage.read(key: _noPinStorageKey);
-    if (stored == null) return false;
-    try {
-      _masterKey = SecretKey(base64.decode(stored));
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Erase no-PIN master key (call after user sets up PIN or logs out).
-  Future<void> clearNoPinMasterKey() async {
-    await _storage.delete(key: _noPinStorageKey);
-  }
-
   Future<void> clearAllData() async {
     lock();
 
@@ -272,8 +260,12 @@ class VaultService {
   /// **Caller MUST call [SecureBuffer.wipe] when done with the data.**
   Future<SecureBuffer> decryptPayloadSecure(String encryptedB64) async {
     if (_masterKey == null) throw Exception('Vault is locked');
-    final plaintext = await _crypto.decrypt(_masterKey!, encryptedB64);
-    return SecureBuffer.fromBytes(plaintext.codeUnits);
+    final plaintextBytes = await _crypto.decryptToBytes(_masterKey!, encryptedB64);
+    try {
+      return SecureBuffer.fromBytes(plaintextBytes);
+    } finally {
+      plaintextBytes.fillRange(0, plaintextBytes.length, 0);
+    }
   }
 
   /// Decrypts a payload to a plain String (use only for edit/save — not display).
@@ -296,17 +288,26 @@ class VaultService {
     if (_masterKey == null) throw Exception('Vault is locked');
 
     final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
-    final encMeta       = await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name});
+    final normalizedSeed = seedPhrase?.trim();
+    final hasSeedPhrase = normalizedSeed != null && normalizedSeed.isNotEmpty;
+    final encMeta       = await _crypto.encryptMetadata(
+      _masterKey!,
+      _buildEncryptedMetadata(
+        name: name,
+        url: url,
+        login: login,
+        seedPhrase: normalizedSeed,
+      ),
+    );
     final encPayload    = await _crypto.encrypt(_masterKey!, password);
     final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
-    final encSeed       = seedPhrase  != null ? await _crypto.encrypt(_masterKey!, seedPhrase)  : null;
 
     final response = await ApiService.post(AppConfig.passwordsUrl, body: {
       'site_hash':              siteHash,
       'encrypted_metadata':     encMeta,
       'encrypted_payload':      encPayload,
       'notes_encrypted':        encNotes,
-      'seed_phrase_encrypted':  encSeed,
+      'has_seed_phrase':        hasSeedPhrase,
       'folder_id':              folderId,
     });
     
@@ -330,17 +331,26 @@ class VaultService {
     if (_masterKey == null) throw Exception('Vault is locked');
 
     final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
-    final encMeta       = await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name});
+    final normalizedSeed = seedPhrase?.trim();
+    final hasSeedPhrase = normalizedSeed != null && normalizedSeed.isNotEmpty;
+    final encMeta       = await _crypto.encryptMetadata(
+      _masterKey!,
+      _buildEncryptedMetadata(
+        name: name,
+        url: url,
+        login: login,
+        seedPhrase: normalizedSeed,
+      ),
+    );
     final encPayload    = await _crypto.encrypt(_masterKey!, password);
     final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
-    final encSeed       = seedPhrase  != null ? await _crypto.encrypt(_masterKey!, seedPhrase)  : null;
 
     final response = await ApiService.put('${AppConfig.passwordsUrl}/$id', body: {
       'site_hash':              siteHash,
       'encrypted_metadata':     encMeta,
       'encrypted_payload':      encPayload,
       'notes_encrypted':        encNotes,
-      'seed_phrase_encrypted':  encSeed,
+      'has_seed_phrase':        hasSeedPhrase,
     });
 
     // Wipe transient plaintext strings
@@ -363,7 +373,10 @@ class VaultService {
 
       items.add({
         'site_hash':          await _crypto.computeSiteHash(_masterKey!, url),
-        'encrypted_metadata': await _crypto.encryptMetadata(_masterKey!, {'site_url': url, 'site_login': login, 'name': name}),
+        'encrypted_metadata': await _crypto.encryptMetadata(
+          _masterKey!,
+          _buildEncryptedMetadata(name: name, url: url, login: login),
+        ),
         'encrypted_payload':  await _crypto.encrypt(_masterKey!, pwd),
         'has_2fa':            false,
         'has_seed_phrase':    false,
@@ -395,6 +408,8 @@ class VaultService {
         entry['title']    = meta['name']       ?? meta['site_url'] ?? '';
         entry['subtitle'] = meta['site_login'] ?? '';
         entry['site_url'] = meta['site_url']   ?? '';
+        entry['has_seed_phrase'] = (meta['seed_phrase'] is String) &&
+            (meta['seed_phrase'] as String).trim().isNotEmpty;
       }
     } catch (_) {
       entry['title']    = '(encrypted)';
@@ -403,5 +418,31 @@ class VaultService {
 
     // Never put decrypted payload in the list — keep it encrypted for on-demand use
     return entry;
+  }
+
+  Future<SecureBuffer?> decryptSeedPhraseFromMetadataSecure(
+    String? encryptedMetadata,
+  ) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+    if (encryptedMetadata == null || encryptedMetadata.isEmpty) return null;
+
+    final meta = await _crypto.decryptMetadata(_masterKey!, encryptedMetadata);
+    final seedPhrase = meta['seed_phrase'];
+    if (seedPhrase is! String || seedPhrase.trim().isEmpty) return null;
+    final bytes = Uint8List.fromList(utf8.encode(seedPhrase));
+    await nativeWipe(seedPhrase);
+    return SecureBuffer.fromBytes(bytes);
+  }
+
+  Future<String?> decryptSeedPhraseFromMetadata(String? encryptedMetadata) async {
+    final buffer = await decryptSeedPhraseFromMetadataSecure(encryptedMetadata);
+    if (buffer == null) return null;
+    final bytes = buffer.getBytesCopy();
+    try {
+      return utf8.decode(bytes);
+    } finally {
+      bytes.fillRange(0, bytes.length, 0);
+      buffer.wipe();
+    }
   }
 }

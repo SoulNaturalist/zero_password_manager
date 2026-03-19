@@ -158,8 +158,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             'site_url':         item['site_url']  ?? '',
             // Keep encrypted payload for on-demand decryption in PasswordDetailScreen
             'encrypted_payload':      item['encrypted_payload'],
+            'encrypted_metadata':     item['encrypted_metadata'],
             'notes_encrypted':        item['notes_encrypted'],
-            'seed_phrase_encrypted':  item['seed_phrase_encrypted'],
             'has_2fa':          item['has_2fa']          ?? false,
             'has_seed_phrase':  item['has_seed_phrase']  ?? false,
             // Always use local assignment; fall back to server value if no local mapping.
@@ -301,8 +301,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
             'subtitle':        item['site_login'] ?? '',
             // Store only encrypted payload — never plaintext
             'encrypted_payload':     item['encrypted_payload'],
+            'encrypted_metadata':    item['encrypted_metadata'],
             'notes_encrypted':       item['notes_encrypted'],
-            'seed_phrase_encrypted': item['seed_phrase_encrypted'],
             'has_2fa':         item['has_2fa'] ?? false,
             'has_seed_phrase': item['has_seed_phrase'] ?? false,
             'favicon_url':     item['favicon_url'],
@@ -392,26 +392,6 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
         );
       }
     }
-  }
-
-  void _copySeedPhrase(String seedPhrase) {
-    if (seedPhrase.isEmpty) return;
-    Clipboard.setData(ClipboardData(text: seedPhrase));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.accent,
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 10),
-            Text(
-              'Seed фраза скопирована в буфер обмена',
-              style: TextStyle(color: Colors.white),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   // ── navigation ──────────────────────────────────────────────────────────────
@@ -1756,9 +1736,8 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       if (item['has_seed_phrase'] == true) ...[
                         IconButton(
                           icon: Icon(Icons.vpn_key, color: AppColors.button),
-                          onPressed:
-                              () => _copySeedPhrase(item['seed_phrase'] ?? ''),
-                          tooltip: 'Копировать seed фразу',
+                          onPressed: () => _navigateToDetail(item),
+                          tooltip: 'Открыть запись с seed-фразой',
                         ),
                         const SizedBox(width: 12),
                       ],

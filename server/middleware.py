@@ -1,12 +1,13 @@
 import logging
+import ipaddress
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
 from .database import SessionLocal
+from .config import settings
 from .security import SecurityManager
-from .utils import get_client_ip
 
 logger = logging.getLogger("zero_vault.security")
 
@@ -60,10 +61,6 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
     Prevents IP spoofing by validating X-Forwarded-For headers.
     """
     async def dispatch(self, request: Request, call_next):
-        # List of trusted proxies (e.g., local nginx, docker network, or Cloudflare IPs)
-        # In a real production environment, this should be moved to settings.
-        trusted_proxies = {"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
-        
         forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for:
             # The client IP is the first entry in X-Forwarded-For
@@ -72,10 +69,30 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
             # Verify if the immediate requester IP is a trusted proxy
             # If request.client is None (e.g. test client), we might skip or assume trusted in dev
             requester_ip = request.client.host if request.client else "127.0.0.1"
-            
-            if requester_ip in trusted_proxies:
-                # Rewrite the client in scope so request.client.host returns the real client IP
-                request.scope["client"] = (client_ip, request.client.port if request.client else 0)
+            trusted = False
+            try:
+                requester_addr = ipaddress.ip_address(requester_ip)
+                for entry in settings.TRUSTED_PROXY_RANGES:
+                    try:
+                        if "/" in entry:
+                            if requester_addr in ipaddress.ip_network(entry, strict=False):
+                                trusted = True
+                                break
+                        elif requester_ip == entry:
+                            trusted = True
+                            break
+                    except ValueError:
+                        continue
+            except ValueError:
+                trusted = False
+
+            if trusted:
+                try:
+                    ipaddress.ip_address(client_ip)
+                    # Rewrite the client in scope so request.client.host returns the real client IP
+                    request.scope["client"] = (client_ip, request.client.port if request.client else 0)
+                except ValueError:
+                    logger.warning("Invalid X-Forwarded-For client IP from trusted proxy: %s", client_ip)
             else:
                 logger.warning(f"Untrusted proxy header detected from {requester_ip}. Header ignored.")
                 

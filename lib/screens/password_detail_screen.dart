@@ -16,7 +16,7 @@ import 'edit_password_screen.dart';
 class PasswordDetailScreen extends StatefulWidget {
   /// Metadata-only map from [VaultService.loadPasswordList].
   /// Must contain: id, title, subtitle, encrypted_payload (optional),
-  /// has_2fa, has_seed_phrase, notes_encrypted, seed_phrase_encrypted.
+  /// has_2fa, has_seed_phrase, notes_encrypted, encrypted_metadata.
   final Map<String, dynamic> entry;
 
   const PasswordDetailScreen({super.key, required this.entry});
@@ -72,7 +72,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
 
       final encPayload = full['encrypted_payload'] as String?;
       final encNotes   = full['notes_encrypted']   as String?;
-      final encSeed    = full['seed_phrase_encrypted'] as String?;
+      final encMeta    = full['encrypted_metadata'] as String?;
 
       if (encPayload != null) {
         _passwordBuf = await VaultService().decryptPayloadSecure(encPayload);
@@ -82,8 +82,10 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
         _notesBuf    = await VaultService().decryptPayloadSecure(encNotes);
         _notesDisplay = String.fromCharCodes(_notesBuf!.getBytesCopy());
       }
-      if (encSeed != null) {
-        _seedBuf     = await VaultService().decryptPayloadSecure(encSeed);
+      if (encMeta != null) {
+        _seedBuf     = await VaultService().decryptSeedPhraseFromMetadataSecure(encMeta);
+      }
+      if (_seedBuf != null) {
         _seedDisplay = String.fromCharCodes(_seedBuf!.getBytesCopy());
       }
     } catch (e) {
