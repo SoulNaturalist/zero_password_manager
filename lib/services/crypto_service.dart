@@ -68,7 +68,7 @@ class CryptoService {
   }
 
   /// Decrypts data from base64(nonce + ciphertext + tag).
-  Future<String> decrypt(SecretKey key, String encryptedB64) async {
+  Future<Uint8List> decryptToBytes(SecretKey key, String encryptedB64) async {
     final data = base64.decode(encryptedB64);
 
     // AesGcm uses 12-byte nonce and 16-byte MAC (tag)
@@ -86,8 +86,17 @@ class CryptoService {
     final secretBox = SecretBox(ciphertext, nonce: nonce, mac: Mac(macBytes));
 
     final clearText = await _aesGcm.decrypt(secretBox, secretKey: key);
+    return Uint8List.fromList(clearText);
+  }
 
-    return utf8.decode(clearText);
+  /// Decrypts data from base64(nonce + ciphertext + tag).
+  Future<String> decrypt(SecretKey key, String encryptedB64) async {
+    final clearText = await decryptToBytes(key, encryptedB64);
+    try {
+      return utf8.decode(clearText);
+    } finally {
+      clearText.fillRange(0, clearText.length, 0);
+    }
   }
 
   /// Helper for encrypting a full metadata object (site_url, site_login, etc.)

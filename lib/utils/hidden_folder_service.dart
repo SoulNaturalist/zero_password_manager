@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../services/auth_token_storage.dart';
 
 /// In-memory session service that tracks whether the user has unlocked
 /// hidden folders via TOTP this session. Resets on app restart.
@@ -16,8 +16,8 @@ class HiddenFolderService {
   /// Submit a TOTP code to the server. Returns true on success.
   Future<bool> verifyTotp(String code) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
+      if (token == null || token.isEmpty) return false;
 
       final response = await http.post(
         Uri.parse(AppConfig.verifyTotpUrl),

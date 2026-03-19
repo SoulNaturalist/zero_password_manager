@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../utils/memory_security.dart';
@@ -8,15 +7,11 @@ import '../services/vault_service.dart';
 import 'edit_password_screen.dart';
 
 /// Shows the detail of a single password account.
-/// The plaintext password is never held as a String in a field —
-/// it lives in a [SecureBuffer] that is wiped when the screen is popped.
-///
-/// Navigation flow:
-///   PasswordsScreen → PasswordDetailScreen → (optional) EditPasswordScreen
+/// Sensitive fields are decrypted only on demand and wiped again when hidden.
 class PasswordDetailScreen extends StatefulWidget {
   /// Metadata-only map from [VaultService.loadPasswordList].
   /// Must contain: id, title, subtitle, encrypted_payload (optional),
-  /// has_2fa, has_seed_phrase, notes_encrypted, seed_phrase_encrypted.
+  /// has_2fa, has_seed_phrase, notes_encrypted, encrypted_metadata.
   final Map<String, dynamic> entry;
 
   const PasswordDetailScreen({super.key, required this.entry});
@@ -26,22 +21,20 @@ class PasswordDetailScreen extends StatefulWidget {
 }
 
 class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
-  // Secure buffers for sensitive data — wiped in dispose()
-  SecureBuffer? _passwordBuf;
-  SecureBuffer? _notesBuf;
-  SecureBuffer? _seedBuf;
-
-  bool _isLoading  = true;
-  bool _showPwd    = false;
-  bool _showNotes  = false;
-  bool _showSeed   = false;
-  bool _copied     = false;
+  bool _isLoading = true;
+  bool _showPwd = false;
+  bool _showNotes = false;
+  bool _showSeed = false;
+  bool _copied = false;
   String? _errorMsg;
 
-  // Cached decoded strings — only live in memory while screen is active
-  String _pwdDisplay   = '';
+  String? _encryptedPayload;
+  String? _encryptedNotes;
+  String? _encryptedMetadata;
+
+  String _pwdDisplay = '';
   String _notesDisplay = '';
-  String _seedDisplay  = '';
+  String _seedDisplay = '';
 
   @override
   void initState() {
@@ -55,13 +48,13 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     super.dispose();
   }
 
-  // ── Load ──────────────────────────────────────────────────────────────────
-
   Future<void> _loadSensitiveData() async {
-    setState(() { _isLoading = true; _errorMsg = null; });
+    setState(() {
+      _isLoading = true;
+      _errorMsg = null;
+    });
 
     try {
-      // If the list-view entry had no encrypted_payload, fetch the full entry
       Map<String, dynamic> full = widget.entry;
       if (full['encrypted_payload'] == null) {
         final id = full['id'] as int?;
@@ -70,57 +63,161 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
         }
       }
 
-      final encPayload = full['encrypted_payload'] as String?;
-      final encNotes   = full['notes_encrypted']   as String?;
-      final encSeed    = full['seed_phrase_encrypted'] as String?;
-
-      if (encPayload != null) {
-        _passwordBuf = await VaultService().decryptPayloadSecure(encPayload);
-        _pwdDisplay  = String.fromCharCodes(_passwordBuf!.getBytesCopy());
-      }
-      if (encNotes != null) {
-        _notesBuf    = await VaultService().decryptPayloadSecure(encNotes);
-        _notesDisplay = String.fromCharCodes(_notesBuf!.getBytesCopy());
-      }
-      if (encSeed != null) {
-        _seedBuf     = await VaultService().decryptPayloadSecure(encSeed);
-        _seedDisplay = String.fromCharCodes(_seedBuf!.getBytesCopy());
-      }
+      _encryptedPayload = full['encrypted_payload'] as String?;
+      _encryptedNotes = full['notes_encrypted'] as String?;
+      _encryptedMetadata = full['encrypted_metadata'] as String?;
     } catch (e) {
       _errorMsg = 'Ошибка расшифровки: $e';
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _wipeAllBuffers() {
-    _passwordBuf?.wipe();
-    _notesBuf?.wipe();
-    _seedBuf?.wipe();
-    // Overwrite display strings (best-effort — Dart Strings are immutable)
-    if (_pwdDisplay.isNotEmpty) unawaited(wipeController(TextEditingController(text: _pwdDisplay)));
-    if (_notesDisplay.isNotEmpty) unawaited(wipeController(TextEditingController(text: _notesDisplay)));
-    if (_seedDisplay.isNotEmpty) unawaited(wipeController(TextEditingController(text: _seedDisplay)));
-    
-    _pwdDisplay   = '';
+    _wipeDisplayedValue(_pwdDisplay);
+    _wipeDisplayedValue(_notesDisplay);
+    _wipeDisplayedValue(_seedDisplay);
+    _pwdDisplay = '';
     _notesDisplay = '';
-    _seedDisplay  = '';
+    _seedDisplay = '';
   }
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  void _wipeDisplayedValue(String value) {
+    if (value.isEmpty) return;
+    unawaited(wipeController(TextEditingController(text: value)));
+  }
 
   Future<void> _copyPassword() async {
-    if (_passwordBuf == null) return;
-    await copySecureBuffer(_passwordBuf!);
+    if (_encryptedPayload == null || _encryptedPayload!.isEmpty) return;
+
+    final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!);
+    try {
+      await copySecureBuffer(passwordBuf);
+    } finally {
+      passwordBuf.wipe();
+    }
+
+    if (!mounted) return;
     setState(() => _copied = true);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _copied = false);
     });
   }
 
+  Future<void> _togglePasswordVisibility() async {
+    if (_showPwd) {
+      _wipeDisplayedValue(_pwdDisplay);
+      if (!mounted) return;
+      setState(() {
+        _showPwd = false;
+        _pwdDisplay = '';
+      });
+      return;
+    }
+
+    if (_encryptedPayload == null || _encryptedPayload!.isEmpty) return;
+
+    try {
+      final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!);
+      final bytes = passwordBuf.getBytesCopy();
+      final display = String.fromCharCodes(bytes);
+      bytes.fillRange(0, bytes.length, 0);
+      passwordBuf.wipe();
+
+      if (!mounted) {
+        await nativeWipe(display);
+        return;
+      }
+
+      setState(() {
+        _pwdDisplay = display;
+        _showPwd = true;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMsg = 'Ошибка расшифровки: $e');
+      }
+    }
+  }
+
+  Future<void> _toggleNotesVisibility() async {
+    if (_showNotes) {
+      _wipeDisplayedValue(_notesDisplay);
+      if (!mounted) return;
+      setState(() {
+        _showNotes = false;
+        _notesDisplay = '';
+      });
+      return;
+    }
+
+    if (_encryptedNotes == null || _encryptedNotes!.isEmpty) return;
+
+    try {
+      final notesBuf = await VaultService().decryptPayloadSecure(_encryptedNotes!);
+      final bytes = notesBuf.getBytesCopy();
+      final display = String.fromCharCodes(bytes);
+      bytes.fillRange(0, bytes.length, 0);
+      notesBuf.wipe();
+
+      if (!mounted) {
+        await nativeWipe(display);
+        return;
+      }
+
+      setState(() {
+        _notesDisplay = display;
+        _showNotes = true;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMsg = 'Ошибка расшифровки: $e');
+      }
+    }
+  }
+
+  Future<void> _toggleSeedVisibility() async {
+    if (_showSeed) {
+      _wipeDisplayedValue(_seedDisplay);
+      if (!mounted) return;
+      setState(() {
+        _showSeed = false;
+        _seedDisplay = '';
+      });
+      return;
+    }
+
+    if (_encryptedMetadata == null || _encryptedMetadata!.isEmpty) return;
+
+    try {
+      final seedBuf =
+          await VaultService().decryptSeedPhraseFromMetadataSecure(_encryptedMetadata!);
+      if (seedBuf == null) return;
+
+      final bytes = seedBuf.getBytesCopy();
+      final display = String.fromCharCodes(bytes);
+      bytes.fillRange(0, bytes.length, 0);
+      seedBuf.wipe();
+
+      if (!mounted) {
+        await nativeWipe(display);
+        return;
+      }
+
+      setState(() {
+        _seedDisplay = display;
+        _showSeed = true;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMsg = 'Ошибка расшифровки: $e');
+      }
+    }
+  }
+
   void _openEdit() {
-    // Pass the encrypted entry (NOT the decrypted password)
-    // EditPasswordScreen will decrypt on-demand when the user needs it
     Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -128,21 +225,18 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
       ),
     ).then((changed) {
       if (changed == true && mounted) {
-        // Re-load if the password was changed
         _wipeAllBuffers();
         _loadSensitiveData();
       }
     });
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    final entry   = widget.entry;
-    final title   = entry['title']    as String? ?? '';
-    final login   = entry['subtitle'] as String? ?? '';
-    final has2fa  = entry['has_2fa']  as bool? ?? false;
+    final entry = widget.entry;
+    final title = entry['title'] as String? ?? '';
+    final login = entry['subtitle'] as String? ?? '';
+    final has2fa = entry['has_2fa'] as bool? ?? false;
     final hasSeed = entry['has_seed_phrase'] as bool? ?? false;
 
     return ThemedBackground(
@@ -174,48 +268,36 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
                   children: [
-                    // ── Header card ──────────────────────────────────────────
                     _buildHeaderCard(title, login),
                     const SizedBox(height: 20),
-
-                    // ── Error ────────────────────────────────────────────────
                     if (_errorMsg != null) ...[
                       _ErrorBanner(message: _errorMsg!),
                       const SizedBox(height: 16),
                     ],
-
-                    // ── Password card ────────────────────────────────────────
-                    if (_pwdDisplay.isNotEmpty)
-                      _buildPasswordCard(),
+                    if ((_encryptedPayload ?? '').isNotEmpty) _buildPasswordCard(),
                     const SizedBox(height: 12),
-
-                    // ── Flags ────────────────────────────────────────────────
                     Row(children: [
                       if (has2fa) _FlagChip(icon: Icons.security, label: '2FA'),
                       if (has2fa && hasSeed) const SizedBox(width: 8),
                       if (hasSeed) _FlagChip(icon: Icons.grain, label: 'Seed'),
                     ]),
                     if (has2fa || hasSeed) const SizedBox(height: 12),
-
-                    // ── Notes card ───────────────────────────────────────────
-                    if (_notesDisplay.isNotEmpty)
+                    if ((_encryptedNotes ?? '').isNotEmpty)
                       _buildRevealCard(
                         icon: Icons.notes,
                         label: 'Заметки',
                         content: _notesDisplay,
                         revealed: _showNotes,
-                        onToggle: () => setState(() => _showNotes = !_showNotes),
+                        onToggle: _toggleNotesVisibility,
                       ),
-
-                    // ── Seed phrase card ─────────────────────────────────────
-                    if (_seedDisplay.isNotEmpty) ...[
+                    if ((_encryptedMetadata ?? '').isNotEmpty && hasSeed) ...[
                       const SizedBox(height: 12),
                       _buildRevealCard(
                         icon: Icons.grain,
                         label: 'Seed-фраза',
                         content: _seedDisplay,
                         revealed: _showSeed,
-                        onToggle: () => setState(() => _showSeed = !_showSeed),
+                        onToggle: _toggleSeedVisibility,
                         highValue: true,
                       ),
                     ],
@@ -232,7 +314,6 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            // Favicon / initial
             Container(
               width: 52,
               height: 52,
@@ -266,7 +347,6 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
                 ],
               ),
             ),
-            // Copy login
             if (login.isNotEmpty)
               IconButton(
                 icon: Icon(Icons.copy, size: 18, color: AppColors.text.withOpacity(0.5)),
@@ -308,7 +388,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 250),
                     child: Text(
-                      _showPwd ? _pwdDisplay : '•' * _pwdDisplay.length.clamp(8, 24),
+                      _showPwd ? _pwdDisplay : '•' * (_pwdDisplay.isEmpty ? 12 : _pwdDisplay.length.clamp(8, 24)),
                       key: ValueKey(_showPwd),
                       style: TextStyle(
                         color: AppColors.text,
@@ -319,17 +399,15 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
                     ),
                   ),
                 ),
-                // Reveal toggle
                 IconButton(
                   icon: Icon(
                     _showPwd ? Icons.visibility_off : Icons.visibility,
                     color: AppColors.text.withOpacity(0.5),
                     size: 20,
                   ),
-                  onPressed: () => setState(() => _showPwd = !_showPwd),
+                  onPressed: _togglePasswordVisibility,
                   tooltip: _showPwd ? 'Скрыть' : 'Показать',
                 ),
-                // Copy
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: IconButton(
@@ -356,7 +434,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     required String label,
     required String content,
     required bool revealed,
-    required VoidCallback onToggle,
+    required Future<void> Function() onToggle,
     bool highValue = false,
   }) {
     return ThemedContainer(
@@ -364,20 +442,28 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: onToggle,
+            onTap: () => unawaited(onToggle()),
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Icon(icon, size: 15,
-                      color: highValue ? AppColors.error.withOpacity(0.8) : AppColors.button.withOpacity(0.8)),
+                  Icon(
+                    icon,
+                    size: 15,
+                    color: highValue
+                        ? AppColors.error.withOpacity(0.8)
+                        : AppColors.button.withOpacity(0.8),
+                  ),
                   const SizedBox(width: 6),
-                  Text(label,
-                      style: TextStyle(
-                          color: AppColors.text.withOpacity(0.7),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: AppColors.text.withOpacity(0.7),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const Spacer(),
                   Icon(
                     revealed ? Icons.expand_less : Icons.expand_more,
@@ -405,8 +491,6 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     );
   }
 }
-
-// ── Small UI widgets ────────────────────────────────────────────────────────
 
 class _FlagChip extends StatelessWidget {
   final IconData icon;

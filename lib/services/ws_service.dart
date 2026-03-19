@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/io.dart';
 import '../config/app_config.dart';
 import '../main.dart'; // import navigatorKey
+import 'auth_token_storage.dart';
 
 class WsService {
   static final WsService _instance = WsService._internal();
@@ -37,17 +38,19 @@ class WsService {
   void connect() async {
     if (AppConfig.apiBaseUrl == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await AuthTokenStorage.readAccessToken();
     // If user is not authenticated yet, we cannot connect to device channel
     if (token == null || token.isEmpty) return;
 
     final wsUrl = AppConfig.apiBaseUrl!.replaceFirst('http', 'ws');
-    final uri = Uri.parse('$wsUrl/ws/device-events?token=$token');
+    final uri = Uri.parse('$wsUrl/ws/device-events');
 
     try {
       _channel?.sink.close();
-      _channel = WebSocketChannel.connect(uri);
+      _channel = IOWebSocketChannel.connect(
+        uri,
+        headers: {'Authorization': 'Bearer $token'},
+      );
 
       _channel!.stream.listen(
         (message) {

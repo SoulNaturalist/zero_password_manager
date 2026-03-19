@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:bip39/bip39.dart' as bip39;
 import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../utils/biometric_service.dart';
@@ -11,11 +12,13 @@ import '../utils/pin_security.dart';
 import 'package:nk3_zero/utils/api_service.dart';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
+import '../services/auth_token_storage.dart';
 import '../services/vault_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
 import 'package:flutter/services.dart';
 import '../utils/hidden_folder_service.dart';
+import '../utils/memory_security.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -405,8 +408,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _updateFavicons() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
+      if (token == null || token.isEmpty) {
+        _showError('Сессия истекла, войдите снова');
+        return;
+      }
 
       final response = await http.post(
         Uri.parse(AppConfig.updateFaviconsUrl),
@@ -1036,8 +1042,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _hasSeedPhrase = data['has_seed_phrase'] ?? false;
         });
       }
-    } catch (e) {
-      print('Error loading profile: $e');
+    } catch (_) {
     } finally {
       setState(() => _isProfileLoading = false);
     }
@@ -1190,9 +1195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (response.statusCode == 200) {
         _loadDevices();
       }
-    } catch (e) {
-      print('Error revoking device: $e');
-    }
+    } catch (_) {}
   }
 
   @override
@@ -1665,80 +1668,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _viewSeedPhrase() async {
     final TextEditingController totpController = TextEditingController();
-    
-    // 1. Show TOTP prompt
-    final String? otp = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.input,
-        title: const Text('Безопасность', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Для просмотра фразы восстановления введите TOTP код из приложения.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: totpController,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: 'TOTP Код',
-                hintStyle: TextStyle(color: Colors.grey),
+    try {
+      final String? otp = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: AppColors.input,
+          title: const Text('Безопасность', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Для просмотра фразы восстановления введите TOTP код из приложения.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: totpController,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'TOTP Код',
+                  hintStyle: TextStyle(color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, totpController.text.trim()),
+              child: const Text('Подтвердить'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, totpController.text),
-            child: const Text('Подтвердить'),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (otp == null || otp.isEmpty) return;
+      if (otp == null || otp.isEmpty) return;
 
-    setState(() => _isProfileLoading = true);
-    try {
-      // 2. Verify TOTP to get short-lived seed_access_token
+      setState(() => _isProfileLoading = true);
+
       final verifyResponse = await ApiService.post(
         AppConfig.verifyTotpUrl,
         headers: {'X-OTP': otp},
         body: {},
       );
 
-      if (verifyResponse.statusCode == 200) {
-        final verifyData = json.decode(verifyResponse.body);
-        final String accessToken = verifyData['seed_access_token'];
-
-        // 3. Fetch seed phrase using the token
-        final seedResponse = await http.get(
-          Uri.parse(AppConfig.seedPhraseUrl),
-          headers: {'Authorization': 'Bearer $accessToken'},
-        );
-
-        if (seedResponse.statusCode == 200) {
-          final seedData = json.decode(seedResponse.body);
-          final String seedPhrase = seedData['seed_phrase'];
-
-          if (!mounted) return;
-          _showSeedPhraseDialog(seedPhrase);
-        } else {
-          _showError('Ошибка загрузки фразы');
-        }
-      } else {
+      if (verifyResponse.statusCode != 200) {
         _showError('Неверный TOTP код');
+        return;
       }
+
+      final verifyData = json.decode(verifyResponse.body) as Map<String, dynamic>;
+      final accessToken = verifyData['seed_access_token'] as String?;
+      if (accessToken == null || accessToken.isEmpty) {
+        _showError('Не удалось подтвердить доступ');
+        return;
+      }
+
+      final seedResponse = await http.get(
+        Uri.parse(AppConfig.seedPhraseUrl),
+        headers: {'Authorization': 'Bearer $accessToken'},
+      );
+
+      if (seedResponse.statusCode != 200) {
+        _showError('Ошибка загрузки фразы');
+        return;
+      }
+
+      final seedData = json.decode(seedResponse.body) as Map<String, dynamic>;
+      final encryptedPhrase = seedData['seed_phrase_encrypted'] as String?;
+      final legacyPhrase = seedData['seed_phrase'] as String?;
+      if ((encryptedPhrase == null || encryptedPhrase.isEmpty) &&
+          (legacyPhrase == null || legacyPhrase.isEmpty)) {
+        _showError('Фраза восстановления не настроена');
+        return;
+      }
+
+      String phrase;
+      SecureBuffer? seedBuffer;
+      if (encryptedPhrase != null && encryptedPhrase.isNotEmpty) {
+        seedBuffer = await VaultService().decryptAccountSeedPhraseSecure(encryptedPhrase);
+        final phraseBytes = seedBuffer.getBytesCopy();
+        phrase = String.fromCharCodes(phraseBytes);
+        phraseBytes.fillRange(0, phraseBytes.length, 0);
+      } else {
+        phrase = legacyPhrase!;
+      }
+
+      if (!mounted) return;
+      await _showSeedPhraseDialog(phrase);
+      await nativeWipe(phrase);
+      seedBuffer?.wipe();
     } catch (e) {
       _showError('Ошибка соединения: $e');
     } finally {
-      setState(() => _isProfileLoading = false);
+      await wipeController(totpController);
+      totpController.dispose();
+      if (mounted) {
+        setState(() => _isProfileLoading = false);
+      }
     }
   }
 
@@ -1764,21 +1793,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed != true) return;
 
-    // BIP-39 Mock for demonstration (Actual implementation should use a library)
-    final List<String> words = [
-      'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract', 
-      'absurd', 'abuse', 'access', 'accident', 'account', 'accuse', 'achieve', 'acid', 
-      'acoustic', 'acquire', 'across', 'act', 'action', 'actor', 'actress', 'actual'
-    ];
-    final random = DateTime.now().millisecondsSinceEpoch;
-    final List<String> seed = List.generate(12, (i) => words[(random + i * i) % words.length]);
-    final String phrase = seed.join(' ');
+    final String phrase = bip39.generateMnemonic(strength: 128);
+    final encryptedPhrase = await VaultService().encryptAccountSeedPhrase(phrase);
 
     setState(() => _isProfileLoading = true);
     try {
       final response = await ApiService.post(
         AppConfig.seedPhraseUrl,
-        body: {'seed_phrase': phrase},
+        body: {'seed_phrase_encrypted': encryptedPhrase},
       );
 
       if (response.statusCode == 200) {
@@ -1786,7 +1808,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _hasSeedPhrase = true;
         });
         if (!mounted) return;
-        _showSeedPhraseDialog(phrase);
+        await _showSeedPhraseDialog(phrase);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(backgroundColor: Colors.green, content: Text('Фраза восстановления успешно создана')),
         );
@@ -1796,12 +1818,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       _showError('Ошибка соединения: $e');
     } finally {
-      setState(() => _isProfileLoading = false);
+      await nativeWipe(phrase);
+      if (mounted) {
+        setState(() => _isProfileLoading = false);
+      }
     }
   }
 
-  void _showSeedPhraseDialog(String phrase) {
-    showDialog(
+  Future<void> _showSeedPhraseDialog(String phrase) {
+    return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.input,
@@ -1840,8 +1865,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Закрыть'),
           ),
           ElevatedButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: phrase));
+            onPressed: () async {
+              await copyWithAutoClear(phrase);
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Фраза скопирована в буфер обмена')),
               );

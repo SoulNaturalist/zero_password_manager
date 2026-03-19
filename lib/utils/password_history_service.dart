@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../services/auth_token_storage.dart';
 import '../utils/api_service.dart';
 
 class PasswordHistoryService {
@@ -24,7 +24,6 @@ class PasswordHistoryService {
 
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      print('Ошибка при добавлении записи в историю: $e');
       return false;
     }
   }
@@ -32,8 +31,7 @@ class PasswordHistoryService {
   // Получить историю паролей
   static Future<List<Map<String, dynamic>>> getPasswordHistory() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
 
       if (token == null) {
         return [];
@@ -51,7 +49,6 @@ class PasswordHistoryService {
 
       return [];
     } catch (e) {
-      print('Ошибка при получении истории паролей: $e');
       return [];
     }
   }

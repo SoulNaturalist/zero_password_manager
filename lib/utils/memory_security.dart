@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 
 // ── SecureBuffer ──────────────────────────────────────────────────────────────
 
@@ -126,18 +128,20 @@ Future<void> copySecureBuffer(SecureBuffer buffer, {
 }) async {
   final copy = buffer.getBytesCopy();
   final text = String.fromCharCodes(copy);
+  final clipboardHash = sha256.convert(utf8.encode(text)).toString();
   
   try {
     await Clipboard.setData(ClipboardData(text: text));
+    await nativeWipe(text);
     
     // Schedule system clipboard clear
     Future.delayed(clearAfter, () async {
       final current = await Clipboard.getData('text/plain');
-      if (current?.text == text) {
+      final currentText = current?.text;
+      if (currentText != null &&
+          sha256.convert(utf8.encode(currentText)).toString() == clipboardHash) {
         await Clipboard.setData(const ClipboardData(text: ''));
       }
-      // Also notify native to wipe the system's memory of this string
-      await nativeWipe(text);
     });
   } finally {
     copy.fillRange(0, copy.length, 0);
@@ -148,12 +152,15 @@ Future<void> copySecureBuffer(SecureBuffer buffer, {
 Future<void> copyWithAutoClear(String text, {
   Duration clearAfter = const Duration(seconds: 30),
 }) async {
+  final clipboardHash = sha256.convert(utf8.encode(text)).toString();
   await Clipboard.setData(ClipboardData(text: text));
+  await nativeWipe(text);
   Future.delayed(clearAfter, () async {
     final current = await Clipboard.getData('text/plain');
-    if (current?.text == text) {
+    final currentText = current?.text;
+    if (currentText != null &&
+        sha256.convert(utf8.encode(currentText)).toString() == clipboardHash) {
       await Clipboard.setData(const ClipboardData(text: ''));
     }
-    await nativeWipe(text);
   });
 }

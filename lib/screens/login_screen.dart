@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../widgets/otp_input_dialog.dart';
+import '../services/auth_token_storage.dart';
 import '../utils/passkey_service.dart';
 import '../services/vault_service.dart';
 import '../models/server_error.dart';
@@ -155,8 +155,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }
 
   Future<void> _handleSuccessfulLogin(Map<String, dynamic> data, String password) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('token', data['access_token']);
+    await AuthTokenStorage.writeAccessToken(data['access_token'] as String);
 
     final salt = data['salt'];
     if (salt != null) {
@@ -188,8 +187,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       final data = await _passkeyService.loginWithPasskey(deviceId);
 
       if (data != null && data['access_token'] != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('token', data['access_token']);
+        await AuthTokenStorage.writeAccessToken(data['access_token'] as String);
 
         if (!mounted) return;
         final hasPinHash = await PinSecurity.hasPinHash();
