@@ -26,6 +26,7 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Correct login field name mismatch and MFA endpoint routing
 - Totp bug
 - Folders ui and scroll bug
+- Harden backend auth trust boundaries
 
 
 ### 🔒 Security
