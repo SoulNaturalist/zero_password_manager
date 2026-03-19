@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
@@ -8,6 +7,7 @@ import 'package:form_builder_validators/form_builder_validators.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
 import '../widgets/two_factor_setup_dialog.dart';
+import '../services/auth_token_storage.dart';
 import '../services/vault_service.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
@@ -154,8 +154,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           // 3. Save Master Key to session (VaultService) after successful 2FA setup
           await VaultService.saveMasterKey(masterKey);
 
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('token', setupData['access_token']);
+          await AuthTokenStorage.writeAccessToken(setupData['access_token'] as String);
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../config/app_config.dart';
+import '../services/auth_token_storage.dart';
 import '../utils/api_service.dart';
 import '../widgets/otp_input_dialog.dart';
 
@@ -29,8 +29,11 @@ class _TelegramBindingScreenState extends State<TelegramBindingScreen> {
   Future<void> _loadProfile() async {
     setState(() => _isLoading = true);
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
+      if (token == null || token.isEmpty) {
+        setState(() => _errorMessage = 'Сессия истекла, войдите снова');
+        return;
+      }
 
       final response = await ApiService.get(
         AppConfig.profileUrl,
@@ -74,8 +77,11 @@ class _TelegramBindingScreenState extends State<TelegramBindingScreen> {
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
+      if (token == null || token.isEmpty) {
+        setState(() => _errorMessage = 'Сессия истекла, войдите снова');
+        return;
+      }
 
       final response = await ApiService.post(
         '${AppConfig.baseUrl}/profile/update',

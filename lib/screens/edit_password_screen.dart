@@ -10,6 +10,7 @@ import '../utils/api_service.dart';
 import '../utils/memory_security.dart';
 import '../utils/password_history_service.dart';
 import '../utils/folder_service.dart';
+import '../services/auth_token_storage.dart';
 import '../services/vault_service.dart';
 
 // ── helpers (same as add_password_screen) ────────────────────────────────────
@@ -101,7 +102,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     try {
       final encPayload = widget.password['encrypted_payload'] as String?;
       final encNotes   = widget.password['notes_encrypted']   as String?;
-      final encSeed    = widget.password['seed_phrase_encrypted'] as String?;
+      final encMeta    = widget.password['encrypted_metadata'] as String?;
 
       if (encPayload != null) {
         passwordController.text = await VaultService().decryptPayload(encPayload);
@@ -109,8 +110,11 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       if (encNotes != null) {
         notesController.text = await VaultService().decryptPayload(encNotes);
       }
-      if (encSeed != null) {
-        seedPhraseController.text = await VaultService().decryptPayload(encSeed);
+      final decryptedSeed =
+          await VaultService().decryptSeedPhraseFromMetadata(encMeta);
+      if (decryptedSeed != null) {
+        seedPhraseController.text = decryptedSeed;
+        unawaited(nativeWipe(decryptedSeed));
       }
       if (mounted) setState(() => _passwordDecrypted = true);
     } catch (e) {
@@ -274,8 +278,10 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
+      final token = await AuthTokenStorage.readAccessToken();
+      if (token == null || token.isEmpty) {
+        throw Exception('Missing access token');
+      }
 
       final passwordId = widget.password['id'];
 

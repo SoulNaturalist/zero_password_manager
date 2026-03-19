@@ -215,6 +215,9 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
         login: email,
         password: password,
         notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
+        seedPhrase: hasSeedPhrase && seedPhraseController.text.trim().isNotEmpty
+            ? seedPhraseController.text.trim()
+            : null,
         folderId: _selectedFolderId,
       );
 
