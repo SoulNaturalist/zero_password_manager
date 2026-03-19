@@ -75,7 +75,8 @@ class _SplashScreenState extends State<SplashScreen> {
         // User has a PIN → go to PIN screen to unlock vault.
         destination = const PinScreen();
       } else {
-        // No PIN set — check biometric first, then fall back to no-PIN key.
+        // No PIN set — require biometric unlock. We no longer keep a no-PIN
+        // master-key copy on disk because that weakens the E2E/local secrecy model.
         final biometricEnabled = await BiometricService.isBiometricEnabled();
         if (biometricEnabled) {
           final secretB64 = await BiometricService.authenticate(
@@ -85,14 +86,10 @@ class _SplashScreenState extends State<SplashScreen> {
             VaultService().setKey(SecretKey(base64.decode(secretB64)));
             destination = const PasswordsScreen();
           } else {
-            // Biometric failed/cancelled — try no-PIN key or require login.
-            final restored = await VaultService().loadNoPinMasterKey();
-            destination = restored ? const PasswordsScreen() : const LoginScreen();
+            destination = const LoginScreen();
           }
         } else {
-          // Biometric not enabled — try no-PIN stored key.
-          final restored = await VaultService().loadNoPinMasterKey();
-          destination = restored ? const PasswordsScreen() : const LoginScreen();
+          destination = const LoginScreen();
         }
       }
     } else {

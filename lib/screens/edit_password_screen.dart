@@ -101,7 +101,7 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
     try {
       final encPayload = widget.password['encrypted_payload'] as String?;
       final encNotes   = widget.password['notes_encrypted']   as String?;
-      final encSeed    = widget.password['seed_phrase_encrypted'] as String?;
+      final encMeta    = widget.password['encrypted_metadata'] as String?;
 
       if (encPayload != null) {
         passwordController.text = await VaultService().decryptPayload(encPayload);
@@ -109,8 +109,11 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       if (encNotes != null) {
         notesController.text = await VaultService().decryptPayload(encNotes);
       }
-      if (encSeed != null) {
-        seedPhraseController.text = await VaultService().decryptPayload(encSeed);
+      final decryptedSeed =
+          await VaultService().decryptSeedPhraseFromMetadata(encMeta);
+      if (decryptedSeed != null) {
+        seedPhraseController.text = decryptedSeed;
+        unawaited(nativeWipe(decryptedSeed));
       }
       if (mounted) setState(() => _passwordDecrypted = true);
     } catch (e) {
