@@ -96,6 +96,8 @@ def create_short_token(user_id: int) -> str:
     now = int(time.time())
     payload = {
         "sub": str(user_id),
+        "type": "access",
+        "jti": secrets.token_hex(16),
         "scope": "seed_access",
         "iat": now,
         "exp": now + 60,

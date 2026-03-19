@@ -1,7 +1,10 @@
+import pytest
 from starlette.requests import Request
 
 from server.main import _get_webauthn_origin, app
 from server.utils import get_client_ip
+
+pytestmark = pytest.mark.security
 
 
 def _make_request(*, client_host: str, headers: list[tuple[bytes, bytes]] | None = None) -> Request:
