@@ -40,6 +40,7 @@ dependencies:
   passkeys: ^2.8.2
   flutter_secure_storage: ^9.0.0
   cryptography: ^2.5.0
+  bip39: ^1.0.6
   hive_flutter: ^1.1.0
   path_provider: ^2.1.2
   flutter_form_builder: ^9.6.0

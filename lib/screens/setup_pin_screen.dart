@@ -343,22 +343,12 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                   const SizedBox(height: 20),
 
                   if (!_isConfirming)
-                    TextButton(
-                      onPressed: () async {
-                        // Persist master key using device keystore so user can
-                        // re-enter the app without PIN on cold restart.
-                        await VaultService().storeNoPinMasterKey();
-                        if (mounted) {
-                          Navigator.pushNamedAndRemoveUntil(
-                            context,
-                            '/passwords',
-                            (route) => false,
-                          );
-                        }
-                      },
-                      child: const Text(
-                        'Пропустить',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        'PIN обязателен: мастер-ключ больше не сохраняется без локального секрета.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey, fontSize: 14),
                       ),
                     ),
                 ],

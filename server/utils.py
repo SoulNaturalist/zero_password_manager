@@ -1,6 +1,7 @@
 import base64
 import os
 import urllib.parse
+import ipaddress
 from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -44,11 +45,36 @@ class EncryptionService:
 
 
 def get_client_ip(request: Request) -> str:
-    """Return the real client IP, respecting X-Forwarded-For from trusted proxies."""
+    """Return the real client IP, trusting X-Forwarded-For only from trusted proxies."""
+    requester_ip = request.client.host if request.client else None
+    if requester_ip:
+        try:
+            requester_addr = ipaddress.ip_address(requester_ip)
+            for entry in settings.TRUSTED_PROXY_RANGES:
+                try:
+                    if "/" in entry:
+                        if requester_addr in ipaddress.ip_network(entry, strict=False):
+                            break
+                    elif requester_ip == entry:
+                        break
+                except ValueError:
+                    continue
+            else:
+                return requester_ip
+        except ValueError:
+            return requester_ip
+
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+        for hop in forwarded.split(","):
+            candidate = hop.strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                continue
+
+    return requester_ip or "unknown"
 
 
 def get_favicon_url(site_url: Optional[str]) -> Optional[str]:

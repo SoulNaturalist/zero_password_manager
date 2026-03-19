@@ -32,8 +32,8 @@ class Settings:
     # JWT Settings (MANDATORY: No fallbacks)
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
     ALGORITHM: str = "HS256"  # Locked for security
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 30)))
-    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "365"))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
     # Critical Keys (MANDATORY: No fallbacks)
     SEED_PHRASE_KEY: str = os.getenv("SEED_PHRASE_KEY", "")
@@ -96,8 +96,14 @@ class Settings:
     # For Flutter, the origin is usually the app's package name or a specific URL
     # For local development with a proxy/web, it might be http://localhost:PORT
     EXPECTED_ORIGIN: str = os.getenv("EXPECTED_ORIGIN", "http://localhost")
+    WEBAUTHN_ALLOWED_ORIGINS: list[str] = [
+        x.strip() for x in os.getenv("WEBAUTHN_ALLOWED_ORIGINS", os.getenv("EXPECTED_ORIGIN", "http://localhost")).split(",")
+        if x.strip()
+    ]
     ALLOWED_ORIGINS: list[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",")
     _whitelist: str = os.getenv("WHITELIST_IPS", "127.0.0.1,::1")
     WHITELIST_IPS: list[str] = [x.strip() for x in _whitelist.split(",") if x.strip()]
+    _trusted_proxies: str = os.getenv("TRUSTED_PROXY_RANGES", "127.0.0.1,::1")
+    TRUSTED_PROXY_RANGES: list[str] = [x.strip() for x in _trusted_proxies.split(",") if x.strip()]
 
 settings = Settings()
