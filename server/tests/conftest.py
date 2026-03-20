@@ -60,6 +60,10 @@ def client(db_session):
     # Disable rate limiting: replace _check_request_limit with a no-op that
     # still satisfies slowapi's expectation of request.state.view_rate_limit.
     from slowapi import Limiter as _Limiter
+    storage = getattr(app.state.limiter, "_storage", None)
+
+    if storage is not None and hasattr(storage, "reset"):
+        storage.reset()
 
     def _noop_check(self, request, endpoint_func, in_middleware=True):
         request.state.view_rate_limit = (None, "unlimited")
@@ -70,4 +74,6 @@ def client(db_session):
          patch.object(_Limiter, "_check_request_limit", _noop_check):
         with TestClient(app, raise_server_exceptions=True) as c:
             yield c
+    if storage is not None and hasattr(storage, "reset"):
+        storage.reset()
     app.dependency_overrides.clear()

@@ -5,6 +5,7 @@ import '../widgets/themed_widgets.dart';
 import '../utils/folder_service.dart';
 import '../utils/hidden_folder_service.dart';
 import '../services/vault_service.dart';
+import '../l10n/l_text.dart';
 
 /// Palette of preset colours the user can pick for a folder.
 const List<String> _kFolderColors = [
@@ -128,7 +129,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
+              child: LText(
                 'Подтверждение',
                 style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.bold),
               ),
@@ -139,7 +140,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            LText(
               reason,
               style: TextStyle(color: AppColors.text.withOpacity(0.7), fontSize: 13),
             ),
@@ -177,7 +178,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+            child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
           ),
           StatefulBuilder(
             builder: (ctx2, setBtn) => ElevatedButton(
@@ -190,7 +191,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 final ok = await _hiddenService.verifyTotp(controller.text.trim());
                 if (ctx2.mounted) Navigator.pop(ctx2, ok);
               },
-              child: const Text('Подтвердить'),
+              child: const LText('Подтвердить'),
             ),
           ),
         ],
@@ -293,7 +294,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            LText(
                               'Скрытая папка',
                               style: TextStyle(
                                 color: AppColors.text,
@@ -301,7 +302,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                                 fontSize: 14,
                               ),
                             ),
-                            Text(
+                            LText(
                               'Требует TOTP для просмотра',
                               style: TextStyle(
                                 color: AppColors.text.withOpacity(0.5),
@@ -321,7 +322,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 ),
                 const SizedBox(height: 20),
                 // Color picker
-                Text('Цвет',
+                LText('Цвет',
                     style: TextStyle(
                         color: AppColors.text.withOpacity(0.7),
                         fontSize: 13,
@@ -357,7 +358,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 ),
                 const SizedBox(height: 20),
                 // Icon picker
-                Text('Иконка',
+                LText('Иконка',
                     style: TextStyle(
                         color: AppColors.text.withOpacity(0.7),
                         fontSize: 13,
@@ -402,7 +403,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+              child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
             ),
             ThemedButton(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -428,7 +429,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 }
                 if (ctx.mounted) Navigator.pop(ctx, true);
               },
-              child: Text(
+              child: LText(
                 existing == null ? 'Создать' : 'Сохранить',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
               ),
@@ -451,18 +452,18 @@ class _FoldersScreenState extends State<FoldersScreen> {
           text: 'Удалить папку?',
           style: TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        content: Text(
+        content: LText(
           'Папка «${folder['name']}» будет удалена.\nПароли из этой папки не удаляются.',
           style: TextStyle(color: AppColors.text.withOpacity(0.8)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+            child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Удалить', style: TextStyle(color: AppColors.error)),
+            child: LText('Удалить', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -493,7 +494,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             children: [
               Icon(Icons.error_outline, color: Colors.white),
               SizedBox(width: 8),
-              Text('Неверный TOTP-код', style: TextStyle(color: Colors.white)),
+              LText('Неверный TOTP-код', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
@@ -571,7 +572,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             const SizedBox(height: 20),
             NeonText(text: 'Нет папок', style: TextStyle(fontSize: 20, color: AppColors.text)),
             const SizedBox(height: 8),
-            Text(
+            LText(
               'Создайте папку для организации\nваших паролей',
               style: TextStyle(fontSize: 14, color: AppColors.text.withOpacity(0.6)),
               textAlign: TextAlign.center,
@@ -585,7 +586,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 children: [
                   Icon(Icons.create_new_folder, color: Colors.white, size: 20),
                   SizedBox(width: 8),
-                  Text('Создать папку',
+                  LText('Создать папку',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                 ],
               ),
@@ -651,7 +652,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                       ),
                       const Spacer(),
                       if (isLocked)
-                        Text('••••••',
+                        LText('••••••',
                             style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -667,7 +668,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                           ),
                         ),
                       const SizedBox(height: 4),
-                      Text(
+                      LText(
                         isLocked ? 'Скрытая' : '$count ${_passwordsWord(count)}',
                         style: TextStyle(
                             fontSize: 12,
@@ -732,7 +733,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             const SizedBox(height: 16),
             ListTile(
               leading: Icon(Icons.edit, color: AppColors.button),
-              title: Text('Редактировать', style: TextStyle(color: AppColors.text)),
+              title: LText('Редактировать', style: TextStyle(color: AppColors.text)),
               onTap: () {
                 Navigator.pop(ctx);
                 _showFolderDialog(existing: folder);
@@ -740,7 +741,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             ),
             ListTile(
               leading: Icon(Icons.delete_outline, color: AppColors.error),
-              title: Text('Удалить папку', style: TextStyle(color: AppColors.error)),
+              title: LText('Удалить папку', style: TextStyle(color: AppColors.error)),
               onTap: () {
                 Navigator.pop(ctx);
                 _deleteFolder(folder);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/colors.dart';
 import '../utils/biometric_service.dart';
+import '../l10n/l_text.dart';
 
 class BiometricTestScreen extends StatefulWidget {
   const BiometricTestScreen({super.key});
@@ -121,7 +122,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        title: Text('Тест биометрии', style: TextStyle(color: AppColors.text)),
+        title: LText('Тест биометрии', style: TextStyle(color: AppColors.text)),
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: AppColors.text),
           onPressed: () => Navigator.of(context).pop(),
@@ -182,7 +183,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  LText(
                     'Статус биометрии',
                     style: TextStyle(
                       color: AppColors.text,
@@ -191,7 +192,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
+                  LText(
                     systemStatus,
                     style: TextStyle(color: statusColor, fontSize: 14),
                   ),
@@ -212,7 +213,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            LText(
               'Диагностическая информация',
               style: TextStyle(
                 color: AppColors.text,
@@ -246,7 +247,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                 (_diagnosticInfo['biometricDetails'] as Map<String, String>)
                     .isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(
+              LText(
                 'Доступные методы:',
                 style: TextStyle(
                   color: AppColors.text,
@@ -260,7 +261,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   .map(
                     (entry) => Padding(
                       padding: const EdgeInsets.only(left: 16, bottom: 4),
-                      child: Text(
+                      child: LText(
                         '• ${entry.value}',
                         style: const TextStyle(
                           color: Colors.grey,
@@ -284,7 +285,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
         children: [
           SizedBox(
             width: 140,
-            child: Text(
+            child: LText(
               label,
               style: TextStyle(
                 color: AppColors.text,
@@ -294,7 +295,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
             ),
           ),
           Expanded(
-            child: Text(
+            child: LText(
               value,
               style: TextStyle(
                 color:
@@ -324,7 +325,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            LText(
               'Тестирование',
               style: TextStyle(
                 color: AppColors.text,
@@ -339,7 +340,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _isTesting ? null : _testBiometricAuthentication,
                     icon: const Icon(Icons.fingerprint),
-                    label: const Text('Тест аутентификации'),
+                    label: const LText('Тест аутентификации'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.button,
                       foregroundColor: Colors.white,
@@ -355,7 +356,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _isTesting ? null : _forceEnableBiometrics,
                     icon: const Icon(Icons.power_settings_new),
-                    label: const Text('Принудительно включить'),
+                    label: const LText('Принудительно включить'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       foregroundColor: Colors.white,
@@ -367,7 +368,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _isTesting ? null : _resetBiometricSettings,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Сбросить'),
+                    label: const LText('Сбросить'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
@@ -404,7 +405,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            LText(
               'Результат теста',
               style: TextStyle(
                 color: AppColors.text,
@@ -428,7 +429,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
+                    child: LText(
                       _testResult,
                       style: TextStyle(
                         color: resultColor,

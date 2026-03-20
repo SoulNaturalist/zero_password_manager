@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/colors.dart';
+import '../l10n/app_localizations.dart';
+import '../l10n/l_text.dart';
 
 class ThemedContainer extends StatelessWidget {
   final Widget child;
@@ -23,6 +25,7 @@ class ThemedContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ThemeManager.colors;
+    final localizedHint = AppLocalizations.translate(hintText, Localizations.localeOf(context));
     final borderRad = borderRadius ?? BorderRadius.circular(12);
 
     if (theme.hasGlassEffect) {
@@ -291,7 +294,7 @@ class NeonText extends StatelessWidget {
       return Stack(
         children: [
           // Внешнее свечение
-          Text(
+          LText(
             text,
             style: textStyle.copyWith(
               foreground:
@@ -302,7 +305,7 @@ class NeonText extends StatelessWidget {
             ),
           ),
           // Внутреннее свечение
-          Text(
+          LText(
             text,
             style: textStyle.copyWith(
               foreground:
@@ -313,12 +316,12 @@ class NeonText extends StatelessWidget {
             ),
           ),
           // Основной текст
-          Text(text, style: textStyle),
+          LText(text, style: textStyle),
         ],
       );
     }
 
-    return Text(text, style: textStyle);
+    return LText(text, style: textStyle);
   }
 }
 
@@ -377,7 +380,7 @@ class ThemedTextField extends StatelessWidget {
               keyboardType: keyboardType,
               style: TextStyle(color: theme.text, fontSize: 16),
               decoration: InputDecoration(
-                hintText: hintText,
+                hintText: localizedHint,
                 hintStyle: TextStyle(color: theme.text.withOpacity(0.6)),
                 prefixIcon: prefixIcon,
                 suffixIcon: suffixIcon,
@@ -401,7 +404,7 @@ class ThemedTextField extends StatelessWidget {
       keyboardType: keyboardType,
       style: TextStyle(color: theme.text),
       decoration: InputDecoration(
-        hintText: hintText,
+        hintText: localizedHint,
         hintStyle: TextStyle(color: theme.text.withOpacity(0.6)),
         prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,

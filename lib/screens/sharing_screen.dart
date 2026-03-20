@@ -4,6 +4,7 @@ import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
 import '../services/sharing_service.dart';
 import '../services/vault_service.dart';
+import '../l10n/l_text.dart';
 
 class SharingScreen extends StatefulWidget {
   /// Optional password entry from the vault list. When provided the share
@@ -152,7 +153,7 @@ class _SharingScreenState extends State<SharingScreen>
                                 color: AppColors.text,
                               ),
                             ),
-                            Text(
+                            LText(
                               'Пароль шифруется одноразовым ключом',
                               style: TextStyle(
                                 fontSize: 12,
@@ -199,13 +200,13 @@ class _SharingScreenState extends State<SharingScreen>
                           style: TextStyle(color: AppColors.text, fontSize: 14),
                           items: const [
                             DropdownMenuItem(
-                                value: null, child: Text('Без срока')),
+                                value: null, child: LText('Без срока')),
                             DropdownMenuItem(
-                                value: 1, child: Text('1 день')),
+                                value: 1, child: LText('1 день')),
                             DropdownMenuItem(
-                                value: 7, child: Text('7 дней')),
+                                value: 7, child: LText('7 дней')),
                             DropdownMenuItem(
-                                value: 30, child: Text('30 дней')),
+                                value: 30, child: LText('30 дней')),
                           ],
                           onChanged: (v) => setSheet(() => expiryDays = v),
                         ),
@@ -223,7 +224,7 @@ class _SharingScreenState extends State<SharingScreen>
                           if (recipient.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Введите логин получателя'),
+                                content: LText('Введите логин получателя'),
                               ),
                             );
                             return;
@@ -232,7 +233,7 @@ class _SharingScreenState extends State<SharingScreen>
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content:
-                                    Text('Выберите пароль для отправки'),
+                                    LText('Выберите пароль для отправки'),
                               ),
                             );
                             return;
@@ -260,7 +261,7 @@ class _SharingScreenState extends State<SharingScreen>
                           children: const [
                             Icon(Icons.lock_outlined, size: 18),
                             SizedBox(width: 8),
-                            Text(
+                            LText(
                               'Создать ссылку',
                               style: TextStyle(
                                 fontSize: 15,
@@ -340,7 +341,7 @@ class _SharingScreenState extends State<SharingScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              LText(
                 'Передайте ключ получателю отдельным каналом. Ключ отображается только один раз.',
                 style: TextStyle(
                   fontSize: 13,
@@ -355,7 +356,7 @@ class _SharingScreenState extends State<SharingScreen>
                   child: Row(
                     children: [
                       Expanded(
-                        child: SelectableText(
+                        child: LSelectableText(
                           shareKey,
                           style: TextStyle(
                             fontFamily: 'monospace',
@@ -405,7 +406,7 @@ class _SharingScreenState extends State<SharingScreen>
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('Готово'),
+                child: const LText('Готово'),
               ),
             ),
           ],
@@ -444,7 +445,7 @@ class _SharingScreenState extends State<SharingScreen>
                   color: AppColors.button.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
+                child: LText(
                   share['label'].toString(),
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
@@ -455,7 +456,7 @@ class _SharingScreenState extends State<SharingScreen>
               ),
               const SizedBox(height: 12),
             ],
-            Text(
+            LText(
               'Введите ключ, полученный от отправителя:',
               style: TextStyle(
                   fontSize: 13, color: AppColors.text.withOpacity(0.7)),
@@ -480,7 +481,7 @@ class _SharingScreenState extends State<SharingScreen>
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text('Отмена',
+                  child: LText('Отмена',
                       style: TextStyle(
                           color: AppColors.text.withOpacity(0.7))),
                 ),
@@ -500,7 +501,7 @@ class _SharingScreenState extends State<SharingScreen>
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Расшифровать'),
+                  child: const LText('Расшифровать'),
                 ),
               ),
             ],
@@ -552,7 +553,7 @@ class _SharingScreenState extends State<SharingScreen>
               child: Row(
                 children: [
                   Expanded(
-                    child: SelectableText(
+                    child: LSelectableText(
                       plaintext,
                       style: TextStyle(
                         fontFamily: 'monospace',
@@ -595,7 +596,7 @@ class _SharingScreenState extends State<SharingScreen>
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('Закрыть'),
+                child: const LText('Закрыть'),
               ),
             ),
           ],
@@ -645,7 +646,7 @@ class _SharingScreenState extends State<SharingScreen>
                     backgroundColor: AppColors.button,
                     foregroundColor: Colors.white,
                     icon: const Icon(Icons.share_rounded),
-                    label: const Text('Поделиться',
+                    label: const LText('Поделиться',
                         style: TextStyle(fontWeight: FontWeight.bold)),
                   )
                 : null,
@@ -708,7 +709,7 @@ class _SharingScreenState extends State<SharingScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        LText(
                           s['label']?.toString() ?? 'Общий пароль',
                           style: TextStyle(
                             color: AppColors.text,
@@ -717,7 +718,7 @@ class _SharingScreenState extends State<SharingScreen>
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
+                        LText(
                           isPending ? 'Ожидает принятия' : 'Принято',
                           style: TextStyle(
                             fontSize: 12,
@@ -742,7 +743,7 @@ class _SharingScreenState extends State<SharingScreen>
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: const Text('Принять',
+                      child: const LText('Принять',
                           style: TextStyle(fontSize: 13)),
                     ),
                 ],
@@ -801,7 +802,7 @@ class _SharingScreenState extends State<SharingScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        LText(
                           s['label']?.toString() ?? 'Пароль',
                           style: TextStyle(
                             color: AppColors.text,
@@ -810,7 +811,7 @@ class _SharingScreenState extends State<SharingScreen>
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
+                        LText(
                           'Кому: ${s['recipient_login'] ?? '—'}',
                           style: TextStyle(
                             fontSize: 12,
@@ -818,7 +819,7 @@ class _SharingScreenState extends State<SharingScreen>
                           ),
                         ),
                         if (s['expires_at'] != null)
-                          Text(
+                          LText(
                             'До: ${_formatDate(s['expires_at'].toString())}',
                             style: TextStyle(
                               fontSize: 11,
@@ -843,7 +844,7 @@ class _SharingScreenState extends State<SharingScreen>
                             title: NeonText(
                                 text: 'Отозвать доступ?',
                                 style: TextStyle(color: AppColors.text)),
-                            content: Text(
+                            content: LText(
                               'Получатель больше не сможет расшифровать пароль.',
                               style: TextStyle(
                                   color: AppColors.text.withOpacity(0.7)),
@@ -851,7 +852,7 @@ class _SharingScreenState extends State<SharingScreen>
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(c, false),
-                                child: Text('Отмена',
+                                child: LText('Отмена',
                                     style: TextStyle(
                                         color:
                                             AppColors.text.withOpacity(0.6))),
@@ -864,7 +865,7 @@ class _SharingScreenState extends State<SharingScreen>
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(10)),
                                 ),
-                                child: const Text('Отозвать'),
+                                child: const LText('Отозвать'),
                               ),
                             ],
                           ),
@@ -882,7 +883,7 @@ class _SharingScreenState extends State<SharingScreen>
                   else
                     Padding(
                       padding: const EdgeInsets.only(right: 4),
-                      child: Text(
+                      child: LText(
                         'Отозван',
                         style: TextStyle(
                           fontSize: 11,
@@ -930,7 +931,7 @@ class _SharingScreenState extends State<SharingScreen>
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            LText(
               subtitle,
               style: TextStyle(
                 fontSize: 13,
@@ -949,7 +950,7 @@ class _SharingScreenState extends State<SharingScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: LText(message),
         backgroundColor: AppColors.error,
       ),
     );
@@ -978,7 +979,7 @@ class _SheetLabel extends StatelessWidget {
       children: [
         Icon(icon, size: 13, color: AppColors.button.withOpacity(0.8)),
         const SizedBox(width: 5),
-        Text(
+        LText(
           label,
           style: TextStyle(
             fontSize: 12,

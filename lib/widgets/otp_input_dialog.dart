@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/colors.dart';
+import '../l10n/app_localizations.dart';
+import '../l10n/l_text.dart';
 
 class OTPInputDialog extends StatefulWidget {
   const OTPInputDialog({super.key});
@@ -26,14 +28,14 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
         children: [
           Icon(Icons.security, color: AppColors.button),
           const SizedBox(width: 12),
-          const Text('Защита 2FA', style: TextStyle(color: Colors.white)),
+          const LText('Защита 2FA', style: TextStyle(color: Colors.white)),
         ],
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          const LText(
             'Введите 6-значный код безопасности для подтверждения действия.',
             style: TextStyle(color: Colors.grey, fontSize: 13),
           ),
@@ -52,7 +54,7 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               counterText: '',
-              hintText: '000000',
+              hintText: AppLocalizations.translateStandalone('000000'),
               hintStyle: TextStyle(color: Colors.grey.withOpacity(0.5)),
               filled: true,
               fillColor: Colors.black.withOpacity(0.2),
@@ -79,7 +81,7 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Отмена', style: TextStyle(color: Colors.grey)),
+          child: const LText('Отмена', style: TextStyle(color: Colors.grey)),
         ),
         ElevatedButton(
           onPressed: () => Navigator.pop(context, _controller.text.trim()),
@@ -91,7 +93,7 @@ class _OTPInputDialogState extends State<OTPInputDialog> {
             ),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
-          child: const Text('Подтвердить'),
+          child: const LText('Подтвердить'),
         ),
       ],
     );

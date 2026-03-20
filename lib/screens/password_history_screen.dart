@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/colors.dart';
 import '../utils/password_history_service.dart';
+import '../l10n/l_text.dart';
 
 class PasswordHistoryScreen extends StatefulWidget {
   const PasswordHistoryScreen({super.key});
@@ -45,7 +46,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('История паролей'),
+        title: const LText('История паролей'),
         backgroundColor: AppColors.background,
         elevation: 0,
         actions: [
@@ -74,7 +75,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
             color: Colors.red.withOpacity(0.7),
           ),
           const SizedBox(height: 16),
-          Text(
+          LText(
             _errorMessage!,
             style: const TextStyle(color: Colors.red, fontSize: 16),
             textAlign: TextAlign.center,
@@ -83,7 +84,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
           ElevatedButton(
             onPressed: _loadHistory,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.button),
-            child: const Text('Повторить'),
+            child: const LText('Повторить'),
           ),
         ],
       ),
@@ -97,7 +98,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
         children: [
           Icon(Icons.history, size: 64, color: Colors.grey.withOpacity(0.7)),
           const SizedBox(height: 16),
-          const Text(
+          const LText(
             'История пуста',
             style: TextStyle(
               color: Colors.grey,
@@ -106,7 +107,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          const LText(
             'Здесь будут отображаться изменения\nваших паролей',
             style: TextStyle(color: Colors.grey, fontSize: 14),
             textAlign: TextAlign.center,
@@ -153,7 +154,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                     color: AppColors.button.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(
+                  child: LText(
                     PasswordHistoryService.getActionTypeIcon(actionType),
                     style: const TextStyle(fontSize: 16),
                   ),
@@ -163,7 +164,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      LText(
                         PasswordHistoryService.getActionTypeDisplayName(
                           actionType,
                         ),
@@ -174,7 +175,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
+                      LText(
                         siteUrl,
                         style: const TextStyle(
                           color: Colors.grey,
@@ -184,7 +185,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                     ],
                   ),
                 ),
-                Text(
+                LText(
                   PasswordHistoryService.formatDate(actionTime),
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
@@ -202,7 +203,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    const LText(
                       'Детали изменений:',
                       style: TextStyle(
                         color: Colors.grey,
@@ -222,7 +223,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                           children: [
                             SizedBox(
                               width: 80,
-                              child: Text(
+                              child: LText(
                                 _getFieldDisplayName(key),
                                 style: const TextStyle(
                                   color: Colors.grey,
@@ -231,7 +232,7 @@ class _PasswordHistoryScreenState extends State<PasswordHistoryScreen> {
                               ),
                             ),
                             Expanded(
-                              child: Text(
+                              child: LText(
                                 _formatFieldValue(value),
                                 style: TextStyle(
                                   color: AppColors.text,

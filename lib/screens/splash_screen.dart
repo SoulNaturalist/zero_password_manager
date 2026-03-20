@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:safe_device/safe_device.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:nk3_zero/screens/login_screen.dart';
@@ -12,7 +11,9 @@ import 'package:nk3_zero/screens/setup_pin_screen.dart';
 import '../config/app_config.dart';
 import '../utils/pin_security.dart';
 import '../utils/biometric_service.dart';
+import '../services/auth_token_storage.dart';
 import '../services/vault_service.dart';
+import '../l10n/l_text.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -58,8 +59,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _navigateNext() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
+    final token = await AuthTokenStorage.readAccessToken();
     final hasPinHash = await PinSecurity.hasPinHash();
 
     if (!mounted) return;
@@ -75,7 +75,8 @@ class _SplashScreenState extends State<SplashScreen> {
         // User has a PIN → go to PIN screen to unlock vault.
         destination = const PinScreen();
       } else {
-        // No PIN set — check biometric first, then fall back to no-PIN key.
+        // No PIN set — require biometric unlock. We no longer keep a no-PIN
+        // master-key copy on disk because that weakens the E2E/local secrecy model.
         final biometricEnabled = await BiometricService.isBiometricEnabled();
         if (biometricEnabled) {
           final secretB64 = await BiometricService.authenticate(
@@ -85,14 +86,10 @@ class _SplashScreenState extends State<SplashScreen> {
             VaultService().setKey(SecretKey(base64.decode(secretB64)));
             destination = const PasswordsScreen();
           } else {
-            // Biometric failed/cancelled — try no-PIN key or require login.
-            final restored = await VaultService().loadNoPinMasterKey();
-            destination = restored ? const PasswordsScreen() : const LoginScreen();
+            destination = const LoginScreen();
           }
         } else {
-          // Biometric not enabled — try no-PIN stored key.
-          final restored = await VaultService().loadNoPinMasterKey();
-          destination = restored ? const PasswordsScreen() : const LoginScreen();
+          destination = const LoginScreen();
         }
       }
     } else {
@@ -118,7 +115,7 @@ class _SplashScreenState extends State<SplashScreen> {
               children: [
                 const Icon(Icons.gpp_bad_rounded, color: Colors.red, size: 80),
                 const SizedBox(height: 24),
-                Text(
+                LText(
                   'Устройство небезопасно',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: Colors.red,
@@ -127,7 +124,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
-                Text(
+                LText(
                   'Обнаружены root-права или модификация системы. В целях защиты ваших паролей приложение заблокировано.',
                   style: Theme.of(context).textTheme.bodyMedium,
                   textAlign: TextAlign.center,
@@ -136,7 +133,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 ElevatedButton(
                   onPressed: () => SystemNavigator.pop(),
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  child: const Text('Закрыть приложение', style: TextStyle(color: Colors.white)),
+                  child: const LText('Закрыть приложение', style: TextStyle(color: Colors.white)),
                 ),
               ],
             ),

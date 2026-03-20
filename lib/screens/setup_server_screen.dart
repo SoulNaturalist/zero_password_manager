@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/colors.dart';
+import '../l10n/l_text.dart';
 
 class SetupServerScreen extends StatefulWidget {
   const SetupServerScreen({super.key});
@@ -36,7 +38,7 @@ class _SetupServerScreenState extends State<SetupServerScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Настройка сервера'),
+        title: const LText('Настройка сервера'),
         backgroundColor: AppColors.surface,
         elevation: 0,
       ),
@@ -55,7 +57,7 @@ class _SetupServerScreenState extends State<SetupServerScreen> {
                   color: AppColors.button,
                 ),
                 const SizedBox(height: 24),
-                Text(
+                LText(
                   'Добро пожаловать!',
                   style: TextStyle(
                     fontSize: 24,
@@ -65,7 +67,7 @@ class _SetupServerScreenState extends State<SetupServerScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
-                const Text(
+                const LText(
                   'Пожалуйста, укажите URL вашего сервера Zero Vault. '
                   'Это может быть как доменное имя (например, https://api.vault.com), так и локальный IP.',
                   style: TextStyle(
@@ -79,7 +81,7 @@ class _SetupServerScreenState extends State<SetupServerScreen> {
                   controller: _urlController,
                   style: TextStyle(color: AppColors.text),
                   decoration: InputDecoration(
-                    labelText: 'URL сервера',
+                    labelText: AppLocalizations.translateStandalone('URL сервера'),
                     labelStyle: const TextStyle(color: Colors.grey),
                     hintText: 'https://...',
                     hintStyle: TextStyle(color: Colors.grey.withOpacity(0.5)),
@@ -124,7 +126,7 @@ class _SetupServerScreenState extends State<SetupServerScreen> {
                               ),
                             ),
                           )
-                          : const Text(
+                          : const LText(
                             'Продолжить',
                             style: TextStyle(
                               fontSize: 16,

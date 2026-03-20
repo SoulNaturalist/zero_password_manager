@@ -5,9 +5,12 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
+import '../services/language_service.dart';
 import '../theme/colors.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
+import '../l10n/l_text.dart';
 
 class TwoFactorSetupDialog extends StatefulWidget {
   final int userId;
@@ -52,7 +55,10 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
 
   Future<void> _fetchSetupData() async {
     try {
-      final headers = <String, String>{'Content-Type': 'application/json'};
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Accept-Language': LanguageService.instance.languageCode,
+      };
       if (widget.enrollmentToken != null) {
         headers['Authorization'] = 'Bearer ${widget.enrollmentToken}';
       }
@@ -73,14 +79,14 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
         setState(() => _isFetching = false);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ошибка инициализации 2FA')),
+          const SnackBar(content: LText('Ошибка инициализации 2FA')),
         );
       }
     } catch (e) {
       setState(() => _isFetching = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка подключения')),
+        const SnackBar(content: LText('Ошибка подключения')),
       );
     }
   }
@@ -93,7 +99,10 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
     final code = _formKey.currentState!.value['code'];
 
     try {
-      final headers = <String, String>{'Content-Type': 'application/json'};
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Accept-Language': LanguageService.instance.languageCode,
+      };
       if (widget.enrollmentToken != null) {
         headers['Authorization'] = 'Bearer ${widget.enrollmentToken}';
       }
@@ -126,7 +135,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка подтверждения')),
+        const SnackBar(content: LText('Ошибка подтверждения')),
       );
     } finally {
       if (mounted) setState(() => _isConfirming = false);
@@ -136,7 +145,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Защита аккаунта'),
+      title: const LText('Защита аккаунта'),
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       content: SingleChildScrollView(
@@ -147,7 +156,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    const LText(
                       'Отсканируйте код в приложении (Google Authenticator / Aegis):',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey),
@@ -167,7 +176,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
                         ),
                       ),
                     const SizedBox(height: 16),
-                    Text(
+                    LText(
                       'Секрет: $_secret',
                       style: const TextStyle(
                         fontFamily: 'monospace',
@@ -182,7 +191,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.text, fontSize: 18, letterSpacing: 8),
                       decoration: InputDecoration(
-                        hintText: '000000',
+                        hintText: AppLocalizations.translateStandalone('000000'),
                         hintStyle: TextStyle(color: Colors.grey.withOpacity(0.5), letterSpacing: 8),
                         filled: true,
                         fillColor: AppColors.input,
@@ -192,10 +201,20 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
                         errorStyle: const TextStyle(color: Colors.redAccent),
                       ),
                       validator: FormBuilderValidators.compose([
-                        FormBuilderValidators.required(errorText: 'Введите код'),
-                        FormBuilderValidators.numeric(errorText: 'Только цифры'),
-                        FormBuilderValidators.minLength(6, errorText: '6 цифр'),
-                        FormBuilderValidators.maxLength(6, errorText: '6 цифр'),
+                        FormBuilderValidators.required(
+                          errorText: AppLocalizations.translateStandalone('Введите код'),
+                        ),
+                        FormBuilderValidators.numeric(
+                          errorText: AppLocalizations.translateStandalone('Только цифры'),
+                        ),
+                        FormBuilderValidators.minLength(
+                          6,
+                          errorText: AppLocalizations.translateStandalone('6 цифр'),
+                        ),
+                        FormBuilderValidators.maxLength(
+                          6,
+                          errorText: AppLocalizations.translateStandalone('6 цифр'),
+                        ),
                       ]),
                     ),
                   ],
@@ -212,7 +231,7 @@ class _TwoFactorSetupDialogState extends State<TwoFactorSetupDialog> {
             ),
             child: _isConfirming
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('ПОДТВЕРДИТЬ', style: TextStyle(fontWeight: FontWeight.bold)),
+                : const LText('ПОДТВЕРДИТЬ', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
       ],
     );

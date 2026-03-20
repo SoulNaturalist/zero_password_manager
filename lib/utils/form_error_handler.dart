@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
+import '../l10n/l_text.dart';
 import '../models/server_error.dart';
 
 class FormErrorHandler {
@@ -34,7 +35,7 @@ class FormErrorHandler {
             children: [
               const Icon(Icons.error_outline, color: Colors.white),
               const SizedBox(width: 8),
-              Expanded(child: Text(error.message)),
+              Expanded(child: LText(error.message)),
             ],
           ),
           backgroundColor: Colors.redAccent,

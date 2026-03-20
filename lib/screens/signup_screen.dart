@@ -1,16 +1,19 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
 import '../widgets/two_factor_setup_dialog.dart';
+import '../services/auth_token_storage.dart';
+import '../services/language_service.dart';
 import '../services/vault_service.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
+import '../l10n/l_text.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -52,7 +55,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Сгенерирован надежный пароль'),
+          content: LText('Сгенерирован надежный пароль'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
@@ -60,7 +63,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось сгенерировать пароль')),
+        const SnackBar(content: LText('Не удалось сгенерировать пароль')),
       );
     }
   }
@@ -126,7 +129,10 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
       // 2. Send registration request with the client-generated salt
       final response = await http.post(
         Uri.parse(AppConfig.registerUrl),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': LanguageService.instance.languageCode,
+        },
         body: jsonEncode({
           'login': login,
           'password': password,
@@ -154,12 +160,11 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           // 3. Save Master Key to session (VaultService) after successful 2FA setup
           await VaultService.saveMasterKey(masterKey);
 
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('token', setupData['access_token']);
+          await AuthTokenStorage.writeAccessToken(setupData['access_token'] as String);
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Регистрация успешно завершена')),
+            const SnackBar(content: LText('Регистрация успешно завершена')),
           );
 
           // New users must always set up a PIN
@@ -179,7 +184,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка подключения к серверу')),
+        const SnackBar(content: LText('Ошибка подключения к серверу')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -222,7 +227,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                         name: 'login',
                         style: TextStyle(color: AppColors.text),
                         decoration: InputDecoration(
-                          hintText: 'Логин',
+                          hintText: AppLocalizations.translateStandalone('Логин'),
                           prefixIcon: Icon(Icons.person_outline, color: AppColors.button),
                           filled: true,
                           fillColor: AppColors.input,
@@ -233,8 +238,13 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                           errorStyle: const TextStyle(color: Colors.redAccent),
                         ),
                         validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(errorText: 'Введите логин'),
-                          FormBuilderValidators.minLength(3, errorText: 'Минимум 3 символа'),
+                          FormBuilderValidators.required(
+                            errorText: AppLocalizations.translateStandalone('Введите логин'),
+                          ),
+                          FormBuilderValidators.minLength(
+                            3,
+                            errorText: AppLocalizations.translateStandalone('Минимум 3 символа'),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 16),
@@ -244,12 +254,12 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                         obscureText: true,
                         style: TextStyle(color: AppColors.text),
                         decoration: InputDecoration(
-                          hintText: 'Пароль',
+                          hintText: AppLocalizations.translateStandalone('Пароль'),
                           prefixIcon: Icon(Icons.lock_outline, color: AppColors.button),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.auto_fix_high),
                             color: AppColors.button,
-                            tooltip: 'Сгенерировать надежный пароль',
+                            tooltip: AppLocalizations.translateStandalone('Сгенерировать надежный пароль'),
                             onPressed: _generatePassword,
                           ),
                           filled: true,
@@ -262,8 +272,13 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                           errorStyle: const TextStyle(color: Colors.redAccent),
                         ),
                         validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(errorText: 'Введите пароль'),
-                          FormBuilderValidators.minLength(14, errorText: 'Минимум 14 символов'),
+                          FormBuilderValidators.required(
+                            errorText: AppLocalizations.translateStandalone('Введите пароль'),
+                          ),
+                          FormBuilderValidators.minLength(
+                            14,
+                            errorText: AppLocalizations.translateStandalone('Минимум 14 символов'),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 32),
@@ -295,7 +310,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                child: const Text(
+                                child: const LText(
                                   'Зарегистрироваться',
                                   style: TextStyle(
                                     fontSize: 16,
@@ -308,7 +323,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                       const SizedBox(height: 24),
                       TextButton(
                         onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-                        child: Text(
+                        child: LText(
                           'Уже есть аккаунт? Войти',
                           style: TextStyle(color: AppColors.button),
                         ),
@@ -355,7 +370,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           shaderCallback: (bounds) => LinearGradient(
             colors: [AppColors.button, AppColors.button.withOpacity(0.7)],
           ).createShader(bounds),
-          child: const Text(
+          child: const LText(
             'ZERO',
             style: TextStyle(
               fontSize: 48,
@@ -366,7 +381,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           ),
         ),
         const SizedBox(height: 8),
-        Text(
+        LText(
           'Создание защищенного аккаунта',
           style: TextStyle(
             fontSize: 16,

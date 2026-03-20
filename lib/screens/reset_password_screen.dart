@@ -5,8 +5,11 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import '../theme/colors.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
+import '../services/language_service.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
+import '../l10n/l_text.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -52,7 +55,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
     try {
       final response = await http.post(
         Uri.parse(AppConfig.resetPasswordUrl),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': LanguageService.instance.languageCode,
+        },
         body: jsonEncode({
           'login': values['login'],
           'totp_code': values['totp_code'],
@@ -64,7 +70,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Пароль успешно сброшен. Теперь вы можете войти.'),
+            content: LText('Пароль успешно сброшен. Теперь вы можете войти.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -83,7 +89,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка подключения к серверу')),
+        const SnackBar(content: LText('Ошибка подключения к серверу')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -94,7 +100,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Сброс пароля'),
+        title: const LText('Сброс пароля'),
         backgroundColor: AppColors.background,
         elevation: 0,
       ),
@@ -129,7 +135,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                         style: TextStyle(color: AppColors.text),
                         decoration: _buildInputDecoration('Логин', Icons.person_outline),
                         validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(errorText: 'Введите логин'),
+                          FormBuilderValidators.required(
+                            errorText: AppLocalizations.translateStandalone('Введите логин'),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 16),
@@ -140,10 +148,20 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                         decoration: _buildInputDecoration('TOTP код', Icons.shutter_speed_outlined),
                         keyboardType: TextInputType.number,
                         validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(errorText: 'Введите TOTP код'),
-                          FormBuilderValidators.numeric(errorText: 'Только цифры'),
-                          FormBuilderValidators.minLength(6, errorText: '6 цифр'),
-                          FormBuilderValidators.maxLength(6, errorText: '6 цифр'),
+                          FormBuilderValidators.required(
+                            errorText: AppLocalizations.translateStandalone('Введите TOTP код'),
+                          ),
+                          FormBuilderValidators.numeric(
+                            errorText: AppLocalizations.translateStandalone('Только цифры'),
+                          ),
+                          FormBuilderValidators.minLength(
+                            6,
+                            errorText: AppLocalizations.translateStandalone('6 цифр'),
+                          ),
+                          FormBuilderValidators.maxLength(
+                            6,
+                            errorText: AppLocalizations.translateStandalone('6 цифр'),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 16),
@@ -154,8 +172,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                         style: TextStyle(color: AppColors.text),
                         decoration: _buildInputDecoration('Новый пароль', Icons.lock_outline),
                         validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(errorText: 'Введите новый пароль'),
-                          FormBuilderValidators.minLength(14, errorText: 'Минимум 14 символов'),
+                          FormBuilderValidators.required(
+                            errorText: AppLocalizations.translateStandalone('Введите новый пароль'),
+                          ),
+                          FormBuilderValidators.minLength(
+                            14,
+                            errorText: AppLocalizations.translateStandalone('Минимум 14 символов'),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 32),
@@ -180,7 +203,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                child: const Text(
+                                child: const LText(
                                   'Сбросить пароль',
                                   style: TextStyle(
                                     fontSize: 16,
@@ -215,7 +238,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
             children: [
               Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
               SizedBox(width: 8),
-              Text(
+              LText(
                 'Важное предупреждение!',
                 style: TextStyle(
                   color: Colors.redAccent,
@@ -226,7 +249,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
             ],
           ),
           const SizedBox(height: 12),
-          Text(
+          LText(
             'Сброс пароля позволит войти в аккаунт, но НЕ восстановит доступ к зашифрованным паролям в сейфе автоматически. '
             'Для восстановления доступа к данным вам ПОТРЕБУЕТСЯ сид-фраза после входа.',
             style: TextStyle(

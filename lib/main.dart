@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'l10n/app_localizations.dart';
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/passwords_screen.dart';
@@ -19,6 +21,7 @@ import 'screens/reset_password_screen.dart';
 import 'theme/colors.dart';
 import 'utils/config_test.dart';
 import 'services/cache_service.dart';
+import 'services/language_service.dart';
 import 'services/ws_service.dart';
 import 'config/app_config.dart';
 
@@ -42,6 +45,7 @@ void main() async {
 
   // Загружаем сохраненную тему
   await _loadSavedTheme();
+  await LanguageService.instance.init();
 
   // Выводим текущую конфигурацию
   ConfigTest.printCurrentConfig();
@@ -75,32 +79,42 @@ class PasswordManagerApp extends StatefulWidget {
 class _PasswordManagerAppState extends State<PasswordManagerApp> {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: navigatorKey,
-      debugShowCheckedModeBanner: false,
-      title: 'Password Manager',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: AppColors.background,
+    return AnimatedBuilder(
+      animation: LanguageService.instance,
+      builder: (context, _) => MaterialApp(
+        navigatorKey: navigatorKey,
+        debugShowCheckedModeBanner: false,
+        locale: LanguageService.instance.locale,
+        supportedLocales: const [Locale('ru'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        title: AppLocalizations.translateStandalone('Password Manager'),
+        theme: ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: AppColors.background,
+        ),
+        initialRoute: '/',
+        navigatorObservers: [routeObserver],
+        routes: {
+          '/': (context) => const SplashScreen(),
+          '/signup': (context) => const SignUpScreen(),
+          '/login': (context) => const LoginScreen(),
+          '/pin': (context) => const PinScreen(),
+          '/setup-pin': (context) => const SetupPinScreen(),
+          '/settings': (context) => const SettingsScreen(),
+          '/passwords': (context) => const PasswordsScreen(),
+          '/add': (context) => const AddPasswordScreen(),
+          '/biometric-test': (context) => const BiometricTestScreen(),
+          '/password-history': (context) => const PasswordHistoryScreen(),
+          '/folders': (context) => const FoldersScreen(),
+          '/setup-server': (context) => const SetupServerScreen(),
+          '/totp-confirm': (context) => const TotpConfirmScreen(),
+          '/telegram-binding': (context) => const TelegramBindingScreen(),
+          '/reset-password': (context) => const ResetPasswordScreen(),
+        },
       ),
-      initialRoute: '/',
-      navigatorObservers: [routeObserver],
-      routes: {
-        '/': (context) => const SplashScreen(),
-        '/signup': (context) => const SignUpScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/pin': (context) => const PinScreen(),
-        '/setup-pin': (context) => const SetupPinScreen(),
-        '/settings': (context) => const SettingsScreen(),
-        '/passwords': (context) => const PasswordsScreen(),
-        '/add': (context) => const AddPasswordScreen(),
-        '/biometric-test': (context) => const BiometricTestScreen(),
-        '/password-history': (context) => const PasswordHistoryScreen(),
-        '/folders': (context) => const FoldersScreen(),
-        '/setup-server': (context) => const SetupServerScreen(),
-        '/totp-confirm': (context) => const TotpConfirmScreen(),
-        '/telegram-binding': (context) => const TelegramBindingScreen(),
-        '/reset-password': (context) => const ResetPasswordScreen(),
-      },
     );
   }
 }

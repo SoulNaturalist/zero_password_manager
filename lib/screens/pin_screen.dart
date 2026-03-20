@@ -7,6 +7,7 @@ import '../utils/biometric_service.dart';
 import '../utils/memory_security.dart';
 import '../utils/pin_security.dart';
 import '../services/vault_service.dart';
+import '../l10n/l_text.dart';
 
 /// PIN verification screen.
 ///
@@ -313,7 +314,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               backgroundColor: Colors.orange,
-              content: Text(
+              content: LText(
                 'Биометрическая аутентификация не удалась. Используйте PIN-код.',
               ),
             ),
@@ -377,7 +378,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 40),
 
-                  Text(
+                  LText(
                     'Введите PIN-код',
                     style: TextStyle(
                       fontSize: 28,
@@ -388,7 +389,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 8),
 
-                  const Text(
+                  const LText(
                     'Для доступа к приложению',
                     style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
@@ -469,7 +470,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                         border:
                             Border.all(color: Colors.orange.withOpacity(0.5)),
                       ),
-                      child: Text(
+                      child: LText(
                         'Повторите через ${_lockoutRemaining!.inMinutes}м '
                         '${(_lockoutRemaining!.inSeconds % 60).toString().padLeft(2, '0')}с',
                         style: const TextStyle(
@@ -492,7 +493,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
-                      child: Text(
+                      child: LText(
                         _errorMessage!,
                         style:
                             const TextStyle(color: Colors.red, fontSize: 14),
@@ -509,7 +510,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 40),
 
-                  const Text(
+                  const LText(
                     'Используйте PIN-код для быстрого доступа',
                     style: TextStyle(fontSize: 14, color: Colors.grey),
                     textAlign: TextAlign.center,
@@ -521,7 +522,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                       onPressed: _authenticateWithBiometrics,
                       icon:
                           const Icon(Icons.fingerprint, color: Colors.white),
-                      label: const Text(
+                      label: const LText(
                         'Использовать биометрию',
                         style: TextStyle(color: Colors.white),
                       ),
@@ -543,7 +544,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                   TextButton(
                     onPressed: () =>
                         Navigator.pushReplacementNamed(context, '/login'),
-                    child: const Text(
+                    child: const LText(
                       'Выйти',
                       style: TextStyle(color: Colors.grey, fontSize: 16),
                     ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/emergency_service.dart';
 import '../services/vault_service.dart';
+import '../l10n/l_text.dart';
 
 class EmergencyScreen extends StatefulWidget {
   const EmergencyScreen({super.key});
@@ -72,13 +73,13 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('Add Emergency Contact'),
+          title: const LText('Add Emergency Contact'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                const LText(
                   'If you do not respond within the wait period after an '
                   'emergency request, your contact will gain access to the '
                   'encrypted vault snapshot you upload.',
@@ -93,7 +94,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text('Wait period: $waitDays days',
+                LText('Wait period: $waitDays days',
                     style: const TextStyle(fontWeight: FontWeight.bold)),
                 Slider(
                   value: waitDays.toDouble(),
@@ -110,7 +111,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: const LText('Cancel'),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -118,7 +119,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                 Navigator.pop(ctx);
                 await _invite(loginCtrl.text.trim(), waitDays);
               },
-              child: const Text('Invite'),
+              child: const LText('Invite'),
             ),
           ],
         ),
@@ -131,7 +132,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       await _service.inviteContact(granteeLogin: login, waitDays: waitDays);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invitation sent to $login')),
+        SnackBar(content: LText('Invitation sent to $login')),
       );
       await _load();
     } catch (e) {
@@ -164,11 +165,11 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Vault Uploaded'),
+        title: const LText('Vault Uploaded'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            const LText(
               'Give this key to your emergency contact now. '
               'They will need it to decrypt the vault. Store it safely.',
               style: TextStyle(fontSize: 12),
@@ -184,7 +185,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
               child: Row(
                 children: [
                   Expanded(
-                    child: SelectableText(
+                    child: LSelectableText(
                       key,
                       style: const TextStyle(
                           fontFamily: 'monospace', fontSize: 11),
@@ -195,7 +196,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: key));
                       ScaffoldMessenger.of(ctx)
-                          .showSnackBar(const SnackBar(content: Text('Copied')));
+                          .showSnackBar(const SnackBar(content: LText('Copied')));
                     },
                   ),
                 ],
@@ -206,7 +207,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done'),
+            child: const LText('Done'),
           ),
         ],
       ),
@@ -220,11 +221,11 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Access Emergency Vault'),
+        title: const LText('Access Emergency Vault'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            const LText(
               'Enter the emergency key you received from the vault owner:'),
             const SizedBox(height: 8),
             TextField(
@@ -239,7 +240,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const LText('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -247,7 +248,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
               Navigator.pop(ctx);
               await _downloadAndShowVault(eaId, keyCtrl.text.trim());
             },
-            child: const Text('Decrypt'),
+            child: const LText('Decrypt'),
           ),
         ],
       ),
@@ -269,7 +270,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Emergency Vault (${passwords.length} entries)'),
+        title: LText('Emergency Vault (${passwords.length} entries)'),
         content: SizedBox(
           width: double.maxFinite,
           height: 400,
@@ -281,8 +282,8 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                   p['site_url']?.toString() ??
                   'Entry ${p['id']}';
               return ListTile(
-                title: Text(name),
-                subtitle: Text(p['site_login']?.toString() ?? ''),
+                title: LText(name),
+                subtitle: LText(p['site_login']?.toString() ?? ''),
               );
             },
           ),
@@ -290,7 +291,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: const LText('Close'),
           ),
         ],
       ),
@@ -303,7 +304,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Emergency Access'),
+        title: const LText('Emergency Access'),
         bottom: TabBar(
           controller: _tabs,
           tabs: const [
@@ -318,7 +319,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showInviteDialog,
         icon: const Icon(Icons.person_add),
-        label: const Text('Add Contact'),
+        label: const LText('Add Contact'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -342,12 +343,12 @@ class _EmergencyScreenState extends State<EmergencyScreen>
           children: [
             const Icon(Icons.security, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text('No emergency contacts yet'),
+            const LText('No emergency contacts yet'),
             const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: _showInviteDialog,
               icon: const Icon(Icons.person_add),
-              label: const Text('Add Contact'),
+              label: const LText('Add Contact'),
             ),
           ],
         ),
@@ -373,8 +374,8 @@ class _EmergencyScreenState extends State<EmergencyScreen>
         backgroundColor: _statusColor(status),
         child: const Icon(Icons.person, color: Colors.white),
       ),
-      title: Text(granteeLogin),
-      subtitle: Text(
+      title: LText(granteeLogin),
+      subtitle: LText(
         '${EmergencyService.statusLabel(status)} · ${ea['wait_days']} day wait',
       ),
       children: [
@@ -388,7 +389,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
               ElevatedButton.icon(
                 onPressed: () => _uploadVault(eaId),
                 icon: const Icon(Icons.upload, size: 16),
-                label: const Text('Upload Vault'),
+                label: const LText('Upload Vault'),
               ),
               // Check-in (only when waiting)
               if (status == 'waiting')
@@ -399,7 +400,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     try {
                       await _service.checkin(eaId);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Check-in recorded')),
+                        const SnackBar(content: LText('Check-in recorded')),
                       );
                       await _load();
                     } catch (e) {
@@ -407,7 +408,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     }
                   },
                   icon: const Icon(Icons.check, size: 16),
-                  label: const Text('Check In'),
+                  label: const LText('Check In'),
                 ),
               // Deny (only when waiting)
               if (status == 'waiting')
@@ -423,7 +424,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     }
                   },
                   icon: const Icon(Icons.block, size: 16),
-                  label: const Text('Deny'),
+                  label: const LText('Deny'),
                 ),
               // Revoke
               if (status != 'revoked')
@@ -442,7 +443,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     }
                   },
                   icon: const Icon(Icons.delete, size: 16),
-                  label: const Text('Revoke'),
+                  label: const LText('Revoke'),
                 ),
             ],
           ),
@@ -461,7 +462,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
           children: [
             Icon(Icons.emergency, size: 64, color: Colors.grey),
             SizedBox(height: 16),
-            Text('No emergency access granted to you'),
+            LText('No emergency access granted to you'),
           ],
         ),
       );
@@ -486,8 +487,8 @@ class _EmergencyScreenState extends State<EmergencyScreen>
         backgroundColor: _statusColor(status),
         child: const Icon(Icons.lock, color: Colors.white),
       ),
-      title: Text(grantorLogin),
-      subtitle: Text(
+      title: LText(grantorLogin),
+      subtitle: LText(
         '${EmergencyService.statusLabel(status)} · ${ea['wait_days']} day wait',
       ),
       children: [
@@ -509,7 +510,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     }
                   },
                   icon: const Icon(Icons.check, size: 16),
-                  label: const Text('Accept Invite'),
+                  label: const LText('Accept Invite'),
                 ),
               // Request access
               if (status == 'accepted')
@@ -528,14 +529,14 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                            content: Text('Access requested. Timer started.')),
+                            content: LText('Access requested. Timer started.')),
                       );
                     } catch (e) {
                       _showError('$e');
                     }
                   },
                   icon: const Icon(Icons.emergency, size: 16),
-                  label: const Text('Request Access'),
+                  label: const LText('Request Access'),
                 ),
               // Download vault
               if (status == 'approved')
@@ -544,10 +545,10 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                       backgroundColor: Colors.green),
                   onPressed: () => _showDownloadVaultDialog(eaId),
                   icon: const Icon(Icons.download, size: 16),
-                  label: const Text('Get Vault'),
+                  label: const LText('Get Vault'),
                 ),
               if (ea['requested_at'] != null && status == 'waiting')
-                Text(
+                LText(
                   'Requested: ${ea['requested_at']}',
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
@@ -583,16 +584,16 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm'),
-        content: Text(message),
+        title: const LText('Confirm'),
+        content: LText(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const LText('Cancel'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm'),
+            child: const LText('Confirm'),
           ),
         ],
       ),
@@ -603,7 +604,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+      SnackBar(content: LText(message), backgroundColor: Colors.red),
     );
   }
 }

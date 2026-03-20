@@ -80,7 +80,6 @@ class PasskeyService {
       final verifyData = json.decode(verifyResponse.body);
       return verifyData['status'] == 'success';
     } catch (e) {
-      print('Passkey Registration Error: $e');
       return false;
     }
   }
@@ -140,7 +139,6 @@ class PasskeyService {
       if (verifyResponse.statusCode != 200) return null;
       return json.decode(verifyResponse.body);
     } catch (e) {
-      print('Passkey Login Error: $e');
       return null;
     }
   }

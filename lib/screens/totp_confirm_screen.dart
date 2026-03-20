@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/colors.dart';
 import '../utils/api_service.dart';
 import '../config/app_config.dart';
+import '../l10n/l_text.dart';
 
 class TotpConfirmScreen extends StatefulWidget {
   const TotpConfirmScreen({super.key});
@@ -49,14 +50,14 @@ class _TotpConfirmScreenState extends State<TotpConfirmScreen> {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('Ошибка подтверждения')));
+          ).showSnackBar(const SnackBar(content: LText('Ошибка подтверждения')));
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
+        ).showSnackBar(SnackBar(content: LText('Ошибка: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -68,7 +69,7 @@ class _TotpConfirmScreenState extends State<TotpConfirmScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Подтверждение смены сервера'),
+        title: const LText('Подтверждение смены сервера'),
         backgroundColor: AppColors.surface,
       ),
       body: Padding(
@@ -78,7 +79,7 @@ class _TotpConfirmScreenState extends State<TotpConfirmScreen> {
           children: [
             Icon(Icons.security, size: 64, color: AppColors.button),
             const SizedBox(height: 24),
-            Text(
+            LText(
               'Сервер запрашивает переезд на:\n${_newUrl ?? "..."}',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -106,7 +107,7 @@ class _TotpConfirmScreenState extends State<TotpConfirmScreen> {
               child:
                   _isLoading
                       ? const CircularProgressIndicator()
-                      : const Text('Подтвердить'),
+                      : const LText('Подтвердить'),
             ),
           ],
         ),

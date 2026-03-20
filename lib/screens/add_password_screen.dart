@@ -9,6 +9,7 @@ import '../utils/hidden_folder_service.dart';
 import '../utils/memory_security.dart';
 import '../services/vault_service.dart';
 import '../utils/password_history_service.dart';
+import '../l10n/l_text.dart';
 
 // ── icon/color helpers ────────────────────────────────────────────────────────
 
@@ -215,6 +216,9 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
         login: email,
         password: password,
         notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
+        seedPhrase: hasSeedPhrase && seedPhraseController.text.trim().isNotEmpty
+            ? seedPhraseController.text.trim()
+            : null,
         folderId: _selectedFolderId,
       );
 
@@ -509,7 +513,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
                               ),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: Text(
+                                child: LText(
                                   selectedFolder['name'] as String? ?? '',
                                   style: TextStyle(color: AppColors.text, fontSize: 15),
                                 ),
@@ -518,7 +522,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
                               Icon(Icons.folder_open, color: AppColors.text.withOpacity(0.4), size: 22),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: Text(
+                                child: LText(
                                   'Выбрать папку',
                                   style: TextStyle(color: AppColors.text.withOpacity(0.55), fontSize: 15),
                                 ),
@@ -580,7 +584,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
                         Icon(Icons.error_outline, color: AppColors.error, size: 18),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(errorMessage!,
+                          child: LText(errorMessage!,
                               style: TextStyle(color: AppColors.error, fontSize: 13)),
                         ),
                       ],
@@ -598,7 +602,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
                           children: [
                             Icon(Icons.save_outlined, size: 20),
                             SizedBox(width: 8),
-                            Text('Сохранить', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                            LText('Сохранить', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                           ],
                         ),
                       ),
@@ -658,7 +662,7 @@ class _SectionLabel extends StatelessWidget {
       children: [
         Icon(icon, size: 15, color: AppColors.button.withOpacity(0.8)),
         const SizedBox(width: 6),
-        Text(
+        LText(
           label,
           style: TextStyle(
             color: AppColors.text.withOpacity(0.75),
@@ -669,7 +673,7 @@ class _SectionLabel extends StatelessWidget {
         ),
         if (optional) ...[
           const SizedBox(width: 6),
-          Text(
+          LText(
             '(необязательно)',
             style: TextStyle(color: AppColors.text.withOpacity(0.4), fontSize: 11),
           ),
@@ -719,7 +723,7 @@ class _StrengthBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+        LText(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -766,13 +770,13 @@ class _ToggleCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
+                LText(label,
                     style: TextStyle(
                         color: AppColors.text,
                         fontWeight: FontWeight.w600,
                         fontSize: 14)),
                 const SizedBox(height: 2),
-                Text(subtitle,
+                LText(subtitle,
                     style: TextStyle(color: AppColors.text.withOpacity(0.5), fontSize: 11)),
               ],
             ),
@@ -832,13 +836,13 @@ class _FolderTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(label,
+                    LText(label,
                         style: TextStyle(
                             color: AppColors.text,
                             fontWeight: FontWeight.w500,
                             fontSize: 15)),
                     if (sublabel != null)
-                      Text(sublabel!,
+                      LText(sublabel!,
                           style: TextStyle(color: AppColors.text.withOpacity(0.5), fontSize: 11)),
                   ],
                 ),

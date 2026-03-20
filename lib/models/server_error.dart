@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../l10n/app_localizations.dart';
+
 class ServerError implements Exception {
   final String message;
   final int statusCode;
@@ -12,7 +14,7 @@ class ServerError implements Exception {
   });
 
   factory ServerError.fromJson(String body, int statusCode) {
-    String message = 'Unknown error';
+    String message = AppLocalizations.translateStandalone('Unknown error');
     Map<String, List<String>>? fieldErrors;
 
     try {
@@ -24,14 +26,16 @@ class ServerError implements Exception {
           final detail = data['detail'];
           
           if (detail is String) {
-            message = detail;
+            message = AppLocalizations.translateStandalone(detail);
           } else if (detail is List) {
             // FastAPI validation errors (422)
             fieldErrors = {};
             for (var error in detail) {
               if (error is Map && error['loc'] is List && error['msg'] != null) {
                 final loc = (error['loc'] as List).last.toString();
-                final msg = error['msg'].toString();
+                final msg = AppLocalizations.translateStandalone(
+                  error['msg'].toString(),
+                );
                 
                 if (fieldErrors.containsKey(loc)) {
                   fieldErrors[loc]!.add(msg);
@@ -41,15 +45,16 @@ class ServerError implements Exception {
               }
             }
             if (fieldErrors.isNotEmpty) {
-              message = 'Ошибка валидации полей';
+              message = AppLocalizations.translateStandalone('Ошибка валидации полей');
             }
           }
         } else if (data['error'] != null) {
-          message = data['error'].toString();
+          message = AppLocalizations.translateStandalone(data['error'].toString());
         }
       }
     } catch (_) {
-      message = 'Ошибка разбора ответа сервера ($statusCode)';
+      message =
+          '${AppLocalizations.translateStandalone('Ошибка разбора ответа сервера')} ($statusCode)';
     }
 
     return ServerError(
