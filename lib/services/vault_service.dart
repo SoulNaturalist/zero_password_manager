@@ -27,6 +27,8 @@ class VaultService {
 
   static const _storageKey = 'encrypted_master_key';
   static const _saltKey    = 'master_key_salt';
+  static const _legacyNoPinMasterKey = 'master_key_no_pin';
+  static const _legacyNoPinSaltKey = 'master_key_no_pin_salt';
 
   // ── Key state ────────────────────────────────────────────────────────────────
 
@@ -182,6 +184,13 @@ class VaultService {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<void> clearNoPinMasterKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_legacyNoPinMasterKey);
+    await prefs.remove(_legacyNoPinSaltKey);
+    await prefs.remove('pin_code');
   }
 
   Future<void> clearAllData() async {

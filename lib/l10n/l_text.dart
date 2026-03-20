@@ -120,7 +120,7 @@ class LSelectableText extends StatelessWidget {
       strutStyle: strutStyle,
       textAlign: textAlign,
       textDirection: textDirection,
-      showCursor: showCursor,
+      showCursor: showCursor ?? false,
       autofocus: autofocus,
       minLines: minLines,
       maxLines: maxLines,

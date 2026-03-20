@@ -25,7 +25,6 @@ class ThemedContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ThemeManager.colors;
-    final localizedHint = AppLocalizations.translate(hintText, Localizations.localeOf(context));
     final borderRad = borderRadius ?? BorderRadius.circular(12);
 
     if (theme.hasGlassEffect) {
@@ -350,6 +349,9 @@ class ThemedTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ThemeManager.colors;
+    final localizedHint = hintText == null
+        ? null
+        : AppLocalizations.translate(hintText!, Localizations.localeOf(context));
 
     if (theme.hasGlassEffect) {
       return ClipRRect(
@@ -449,6 +451,9 @@ class ThemedElevatedButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ThemeManager.colors;
+    final localizedHint = hintText == null
+        ? null
+        : AppLocalizations.translate(hintText!, Localizations.localeOf(context));
 
     if (theme.hasGlassEffect) {
       return ClipRRect(

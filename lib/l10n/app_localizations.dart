@@ -173,7 +173,6 @@ class AppLocalizations {
     'Фраза восстановления успешно создана': 'Recovery phrase created successfully',
     'Создать фразу восстановления?': 'Create a recovery phrase?',
     'Это позволит восстановить доступ к аккаунту при потере пароля. Фраза будет сгенерирована на устройстве.': 'This lets you restore access to your account if you lose your password. The phrase will be generated on the device.',
-    'Фраза восстановления': 'Recovery phrase',
     'Никому не сообщайте эту фразу! Она дает полный доступ к вашему аккаунту и данным.': 'Do not share this phrase with anyone. It grants full access to your account and data.',
     'Для просмотра фразы восстановления введите TOTP код из приложения.': 'To view the recovery phrase, enter the TOTP code from your authenticator app.',
     'TOTP Код': 'TOTP code',

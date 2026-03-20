@@ -25,7 +25,7 @@ class LanguageService extends ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedCode = prefs.getString(_storageKey);
+    final String? savedCode = prefs.getString(_storageKey);
     if (savedCode == 'ru' || savedCode == 'en') {
       _locale = Locale(savedCode);
     } else {
