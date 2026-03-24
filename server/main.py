@@ -143,43 +143,73 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: dict[int, WebSocket] = {}
+        # user_id -> list of websockets to support multiple devices/tabs
+        self.active_connections: dict[int, List[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, user_id: int):
         await websocket.accept()
-        self.active_connections[user_id] = websocket
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = []
+        self.active_connections[user_id].append(websocket)
+        logger.info(f"WS: User {user_id} connected. Total active sessions for user: {len(self.active_connections[user_id])}")
 
-    def disconnect(self, user_id: int):
+    def disconnect(self, websocket: WebSocket, user_id: int):
         if user_id in self.active_connections:
-            del self.active_connections[user_id]
+            if websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+                logger.info(f"WS: User {user_id} session closed. Remaining sessions: {len(self.active_connections[user_id])}")
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
 
     async def send_personal_message(self, message: dict, user_id: int):
-        websocket = self.active_connections.get(user_id)
-        if websocket:
-            await websocket.send_json(message)
+        connections = self.active_connections.get(user_id, [])
+        for websocket in connections:
+            try:
+                await websocket.send_json(message)
+            except Exception as e:
+                logger.error(f"WS: Failed to send message to user {user_id}: {str(e)}")
 
 manager = ConnectionManager()
 
 @app.websocket("/ws/device-events")
 async def websocket_device_events(websocket: WebSocket, token: Optional[str] = None):
+    client_host = websocket.client.host if websocket.client else "unknown"
     try:
+        # Authentication
         auth_header = websocket.headers.get("authorization")
         if (token is None or not token) and auth_header and auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
+        
         if not token:
-            raise ValueError("Missing token")
+            logger.warning(f"WS: Rejecting connection from {client_host} - No token")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
         payload = auth_service.decode_token(token)
         user_id = int(payload.get("sub"))
-    except Exception:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        
+    except Exception as e:
+        logger.warning(f"WS: Auth failed for {client_host}: {str(e)}")
+        try:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        except:
+            pass
         return
 
     await manager.connect(websocket, user_id)
     try:
         while True:
+            # Keep-alive / wait for disconnect
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(user_id)
+        # Handled naturally
+        pass
+    except Exception as e:
+        logger.error(f"WS: Exception in session for user {user_id}: {type(e).__name__}: {str(e)}")
+    except BaseException as e:
+        logger.error(f"WS: BaseException in session for user {user_id}: {type(e).__name__}: {str(e)}")
+    finally:
+        manager.disconnect(websocket, user_id)
 
 @app.get("/profile", response_model=schemas.UserResponse)
 def get_profile(request: Request, current_user: models.User = Depends(auth_deps.get_current_user)):

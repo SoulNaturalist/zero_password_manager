@@ -13,15 +13,18 @@ logger = logging.getLogger("zero_vault.security")
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Skip for WebSockets - BaseHTTPMiddleware can interfere with the handshake
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
+
         client_ip = SecurityManager.get_client_ip(request)
         
         # 1. Whitelist check
         if SecurityManager.is_ip_whitelisted(client_ip):
             return await call_next(request)
         
-        # 2. Block check (against IPBlock table)
-        # We need a DB session here. Using SessionLocal directly as it's middleware.
-        db: Session = SessionLocal()
+        # 2. Block check
+        db = SessionLocal()
         try:
             if SecurityManager.is_ip_blocked(db, client_ip):
                 logger.warning(f"Access denied for blocked IP: {client_ip}")
@@ -30,26 +33,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             # 3. Scanner detection
             scanner_type = SecurityManager.is_scanner_request(request)
             if scanner_type:
-                logger.critical(f"Scanner detected! Type: {scanner_type}, IP: {client_ip}, Path: {request.url.path}")
-                
-                # Log the event
-                SecurityManager.log_security_event(
-                    db, 
-                    "scanner_detected", 
-                    {
-                        "scanner": scanner_type,
-                        "path": request.url.path,
-                        "method": request.method,
-                        "headers": dict(request.headers.items())
-                    }, 
-                    client_ip
-                )
-                
-                # Block the IP for 24 hours
+                logger.critical(f"Scanner detected! Type: {scanner_type}, IP: {client_ip}")
                 SecurityManager.block_ip(db, client_ip, timedelta(hours=24), reason=f"Scanner Detected ({scanner_type})")
-                
                 return Response(content="Access denied", status_code=403)
-                
         finally:
             db.close()
             
@@ -61,6 +47,8 @@ class ProxyHeadersMiddleware(BaseHTTPMiddleware):
     Prevents IP spoofing by validating X-Forwarded-For headers.
     """
     async def dispatch(self, request: Request, call_next):
+        if request.scope.get("type") == "websocket":
+            return await call_next(request)
         forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for:
             # The client IP is the first entry in X-Forwarded-For

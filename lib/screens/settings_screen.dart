@@ -20,6 +20,7 @@ import 'package:csv/csv.dart';
 import 'package:flutter/services.dart';
 import '../utils/hidden_folder_service.dart';
 import '../utils/memory_security.dart';
+import '../services/ws_service.dart';
 import '../l10n/l_text.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -387,6 +388,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed == true) {
       try {
+        await WsService().disconnect();
         await VaultService().clearAllData();
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(

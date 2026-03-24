@@ -13,6 +13,7 @@ import '../services/language_service.dart';
 import '../services/vault_service.dart';
 import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
+import '../services/ws_service.dart';
 import '../l10n/l_text.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -161,6 +162,7 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
           await VaultService.saveMasterKey(masterKey);
 
           await AuthTokenStorage.writeAccessToken(setupData['access_token'] as String);
+          WsService().init();
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(

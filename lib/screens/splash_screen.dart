@@ -13,6 +13,7 @@ import '../utils/pin_security.dart';
 import '../utils/biometric_service.dart';
 import '../services/auth_token_storage.dart';
 import '../services/vault_service.dart';
+import '../services/ws_service.dart';
 import '../l10n/l_text.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -71,6 +72,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
     Widget destination;
     if (token != null) {
+      // Start WebSocket if we have a session
+      WsService().init();
+      
       if (hasPinHash) {
         // User has a PIN → go to PIN screen to unlock vault.
         destination = const PinScreen();

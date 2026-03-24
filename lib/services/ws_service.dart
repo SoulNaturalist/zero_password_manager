@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -12,9 +13,16 @@ class WsService {
   WsService._internal();
 
   WebSocketChannel? _channel;
+  StreamSubscription? _subscription;
+  Timer? _reconnectTimer;
+
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
+
   bool _isInit = false;
+  bool _isConnecting = false;
+  bool _isConnected = false;
+  bool _manuallyClosed = false;
 
   Future<void> init() async {
     if (_isInit) return;
@@ -32,40 +40,72 @@ class WsService {
     );
 
     _isInit = true;
-    connect();
+    await connect();
   }
 
-  void connect() async {
+  Future<void> connect() async {
+    if (_isConnecting || _isConnected) return;
     if (AppConfig.apiBaseUrl == null) return;
 
     final token = await AuthTokenStorage.readAccessToken();
     // If user is not authenticated yet, we cannot connect to device channel
     if (token == null || token.isEmpty) return;
 
+    _isConnecting = true;
+    _manuallyClosed = false;
+    _reconnectTimer?.cancel();
+
     final wsUrl = AppConfig.apiBaseUrl!.replaceFirst('http', 'ws');
     final uri = Uri.parse('$wsUrl/ws/device-events');
 
     try {
-      _channel?.sink.close();
+      // Clean up old subscription if any (though _isConnected check should prevent this)
+      await _subscription?.cancel();
+      _subscription = null;
+
       _channel = IOWebSocketChannel.connect(
         uri,
         headers: {'Authorization': 'Bearer $token'},
       );
 
-      _channel!.stream.listen(
+      _isConnected = true;
+      _isConnecting = false;
+
+      _subscription = _channel!.stream.listen(
         (message) {
           _handleMessage(message);
         },
         onDone: () {
-          Future.delayed(const Duration(seconds: 10), connect);
+          _isConnected = false;
+          _channel = null;
+          if (!_manuallyClosed) {
+            _scheduleReconnect();
+          }
         },
         onError: (e) {
-          Future.delayed(const Duration(seconds: 10), connect);
+          _isConnected = false;
+          _channel = null;
+          if (!_manuallyClosed) {
+            _scheduleReconnect();
+          }
         },
+        cancelOnError: true,
       );
     } catch (e) {
-      Future.delayed(const Duration(seconds: 10), connect);
+      _isConnected = false;
+      _isConnecting = false;
+      _channel = null;
+      _scheduleReconnect();
     }
+  }
+
+  void _scheduleReconnect() {
+    if (_manuallyClosed) return;
+    if (_reconnectTimer?.isActive ?? false) return;
+
+    _reconnectTimer = Timer(const Duration(seconds: 10), () {
+      connect();
+    });
   }
 
   void _handleMessage(dynamic message) {
@@ -90,7 +130,7 @@ class WsService {
     );
 
     await _notificationsPlugin.show(
-      DateTime.now().millisecond,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
       'Смена сервера Zero Vault',
       'Нажмите для подтверждения переезда на $newUrl',
       const NotificationDetails(android: androidDetails),
@@ -117,8 +157,18 @@ class WsService {
     }
   }
 
-  void disconnect() {
-    _channel?.sink.close();
+  Future<void> disconnect() async {
+    _manuallyClosed = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    
+    _isConnected = false;
+    _isConnecting = false;
+
+    await _subscription?.cancel();
+    _subscription = null;
+
+    await _channel?.sink.close();
     _channel = null;
   }
 }

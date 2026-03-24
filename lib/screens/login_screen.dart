@@ -17,6 +17,7 @@ import '../models/server_error.dart';
 import '../utils/form_error_handler.dart';
 import '../utils/security_utils.dart';
 import '../utils/pin_security.dart';
+import '../services/ws_service.dart';
 import '../l10n/l_text.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -165,6 +166,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _handleSuccessfulLogin(Map<String, dynamic> data, String password) async {
     await AuthTokenStorage.writeAccessToken(data['access_token'] as String);
+    WsService().init();
 
     final salt = data['salt'];
     if (salt != null) {
@@ -197,6 +199,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
       if (data != null && data['access_token'] != null) {
         await AuthTokenStorage.writeAccessToken(data['access_token'] as String);
+        WsService().init();
 
         if (!mounted) return;
         final hasPinHash = await PinSecurity.hasPinHash();

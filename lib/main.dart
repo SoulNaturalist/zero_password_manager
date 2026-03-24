@@ -40,9 +40,6 @@ void main() async {
   // Инициализируем локальный кэш (Hive)
   await CacheService().init();
 
-  // Инициализируем WebSockets для мониторинга событий безопасности
-  await WsService().init();
-
   // Загружаем сохраненную тему
   await _loadSavedTheme();
   await LanguageService.instance.init();
