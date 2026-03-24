@@ -19,6 +19,7 @@
 <br>
 
 [![Download APK](https://img.shields.io/github/v/release/SoulNaturalist/zero_password_manager?label=Download%20APK&logo=android&logoColor=white&color=4CAF50&style=for-the-badge)](https://github.com/SoulNaturalist/zero_password_manager/releases/latest)
+[![Feature Guide](https://img.shields.io/badge/Feature%20Guide-Explore%20Capabilities-8b5cf6?style=for-the-badge)](FEATURES.md)
 
 <br>
 
@@ -51,6 +52,12 @@ Combined with client-side encryption that ensures the server is **cryptographica
 > **No cloud subscription. No vendor lock-in. No breach notifications from a company you forgot you trusted.**
 
 <br>
+
+---
+
+## 📚 Detailed Feature Guide
+
+Want the polished product tour? Read the full **[Feature Guide](FEATURES.md)** for a categorized overview of security, vault organization, sharing, recovery, passkeys, biometrics, and platform support.
 
 ---
 

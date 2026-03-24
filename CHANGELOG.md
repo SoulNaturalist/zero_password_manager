@@ -28,6 +28,8 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Folders ui and scroll bug
 - Harden backend auth trust boundaries
 - Harden client memory handling and e2e seed storage
+- Fix bugs
+
 
 
 ### 🔒 Security
