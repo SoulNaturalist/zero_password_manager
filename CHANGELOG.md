@@ -30,6 +30,12 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Harden client memory handling and e2e seed storage
 - Fix bugs
 
+- Ws loop on client
+
+
+### 📖 Documentation
+
+- Add English feature guide
 
 
 ### 🔒 Security
