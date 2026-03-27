@@ -60,6 +60,7 @@ class AppConfig {
   static String get updateProfileUrl => '$apiUrl/profile/update';
   static String get resetPasswordUrl => '$apiUrl/api/v1/reset-password';
   static String get verifyTotpUrl => '$apiUrl/api/v1/verify-totp';
+  static String get verifyHiddenFoldersTotpUrl => '$apiUrl/api/v1/verify-hidden-folders-totp';
   static String get seedPhraseUrl => '$apiUrl/profile/seed-phrase';
   static String get shareUrl => '$apiUrl/sharing';
   static String get shareIncomingUrl => '$apiUrl/sharing/incoming';

@@ -32,6 +32,7 @@ from .schemas import (
     UserCreate,
     UserResponse,
     LoginPhase1Response,
+    HiddenFolderTOTPRequest,
 )
 from .service import (
     authenticate_user,
@@ -684,14 +685,49 @@ async def verify_totp_for_seed(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Verify TOTP to get a short-lived token for sensitive resource access (e.g., Seed Phrase)."""
+    """Verify TOTP for obtaining a short-lived token for sensitive operations (Seed Phrase)."""
     otp = request.headers.get("X-OTP")
     if not otp:
-        raise OTPRequired()
+        raise HTTPException(status_code=400, detail="OTP code is required in X-OTP header")
 
     verify_hardened_otp(db, current_user, otp)
-
-    # Issue a very short-lived token with specific scope
     seed_access_token = create_short_token(current_user.id)
-    
     return {"seed_access_token": seed_access_token}
+
+
+@router.post("/verify-hidden-folders-totp", response_model=dict)
+@limiter.limit("5/minute")
+async def verify_hidden_folders_totp(
+    request: Request,
+    body: HiddenFolderTOTPRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Verify TOTP for unlocking locally stored hidden folders.
+    Server only verifies identity; folder metadata remains on client.
+    """
+    start_time = time.time()
+    ip_address = get_client_ip(request)
+
+    try:
+        # 2FA must be enabled for this user
+        if not current_user.totp_enabled or not current_user.totp_secret:
+            log_security_event(db, current_user.id, "hidden_folders_totp_denied", 
+                             {"reason": "2fa_not_enabled", "ip": ip_address}, ip_address)
+            raise HTTPException(status_code=400, detail="2FA is not enabled")
+
+        verify_hardened_otp(db, current_user, body.otp, ip_address)
+        reset_otp_failure_counters(current_user, db)
+
+        log_security_event(db, current_user.id, "hidden_folders_unlocked", {"ip": ip_address}, ip_address)
+        return {"ok": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_security_event(db, current_user.id if current_user else None, 
+                         "hidden_folders_totp_failed", {"error": str(e), "ip": ip_address}, ip_address)
+        raise HTTPException(status_code=401, detail="Invalid OTP code")
+    finally:
+        constant_time_response(start_time)

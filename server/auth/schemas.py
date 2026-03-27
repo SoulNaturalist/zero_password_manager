@@ -56,3 +56,16 @@ class LoginPhase1Response(BaseModel):
     salt: str
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
+
+
+class HiddenFolderTOTPRequest(BaseModel):
+    """
+    TOTP verification request for unlocking hidden folders.
+    Server only receives the OTP code to maintain zero-trust model.
+    """
+    otp: str = Field(
+        ...,
+        min_length=6,
+        max_length=8,
+        description="TOTP code entered by the user"
+    )

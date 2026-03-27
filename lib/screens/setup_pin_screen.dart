@@ -5,6 +5,7 @@ import '../theme/colors.dart';
 import '../utils/pin_security.dart';
 import '../services/vault_service.dart';
 import '../l10n/l_text.dart';
+import '../utils/memory_security.dart';
 
 /// PIN setup screen.
 ///
@@ -21,22 +22,19 @@ class SetupPinScreen extends StatefulWidget {
 
 class _SetupPinScreenState extends State<SetupPinScreen>
     with TickerProviderStateMixin {
-  final List<TextEditingController> _controllers = List.generate(
-    6,
-    (index) => TextEditingController(),
-  );
-  final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
+  final TextEditingController _pinController = TextEditingController();
+  final FocusNode _pinFocusNode = FocusNode();
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
   // PIN digits as raw bytes (ASCII codes of '0'..'9') — zeroed after use.
-  Uint8List _pinBytes        = Uint8List(0);
+  Uint8List _pinBytes = Uint8List(0);
   Uint8List _confirmPinBytes = Uint8List(0);
 
   bool _isConfirming = false;
-  bool _isLoading    = false;
+  bool _isLoading = false;
   String? _errorMessage;
 
   @override
@@ -61,69 +59,63 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
     _animationController.forward();
 
-    for (int i = 0; i < 6; i++) {
-      _controllers[i].addListener(() {
-        if (_controllers[i].text.length == 1 && i < 5) {
-          _focusNodes[i + 1].requestFocus();
-        }
-      });
-    }
+    // Auto-focus the field
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pinFocusNode.requestFocus();
+    });
   }
 
   @override
   void dispose() {
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
-    for (var node in _focusNodes) {
-      node.dispose();
-    }
+    _pinController.dispose();
+    _pinFocusNode.dispose();
     _animationController.dispose();
     _pinBytes.fillRange(0, _pinBytes.length, 0);
     _confirmPinBytes.fillRange(0, _confirmPinBytes.length, 0);
     super.dispose();
   }
 
-  Uint8List _collectAndClearControllers() {
-    final bytes = Uint8List(6);
-    for (int i = 0; i < 6; i++) {
-      final text = _controllers[i].text;
-      bytes[i] = text.isNotEmpty ? text.codeUnitAt(0) : 0;
-      _controllers[i].clear();
+  Uint8List _collectBytesFromText(String text) {
+    final bytes = Uint8List(text.length);
+    for (int i = 0; i < text.length; i++) {
+      bytes[i] = text.codeUnitAt(i);
     }
     return bytes;
   }
 
-  void _onPinChanged() {
-    final entered = _controllers.map((c) => c.text).join();
+  void _onPinInputChanged(String value) {
     setState(() => _errorMessage = null);
 
-    if (entered.length == 6) {
-      _pinBytes = _collectAndClearControllers();
-      _proceedToConfirm();
+    if (value.length == 6) {
+      if (!_isConfirming) {
+        _pinBytes = _collectBytesFromText(value);
+        wipeController(_pinController);
+        _proceedToConfirm();
+      } else {
+        _confirmPinBytes = _collectBytesFromText(value);
+        wipeController(_pinController);
+        _savePin();
+      }
     }
   }
 
   void _proceedToConfirm() {
     setState(() => _isConfirming = true);
-    _focusNodes[0].requestFocus();
+    _pinFocusNode.requestFocus();
   }
 
-  void _onConfirmPinChanged() {
-    final entered = _controllers.map((c) => c.text).join();
+  void _clearInput() {
+    _pinController.clear();
     setState(() => _errorMessage = null);
-
-    if (entered.length == 6) {
-      _confirmPinBytes = _collectAndClearControllers();
-      _savePin();
-    }
   }
 
   Future<void> _savePin() async {
     // Constant-time comparison to avoid timing side-channels
     bool match = _pinBytes.length == _confirmPinBytes.length;
-    for (int i = 0; i < _pinBytes.length; i++) {
-      if (_pinBytes[i] != _confirmPinBytes[i]) match = false;
+    if (match) {
+      for (int i = 0; i < _pinBytes.length; i++) {
+        if (_pinBytes[i] != _confirmPinBytes[i]) match = false;
+      }
     }
 
     // Zero confirm buffer — no longer needed
@@ -131,8 +123,13 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     _confirmPinBytes = Uint8List(0);
 
     if (!match) {
-      setState(() => _errorMessage = 'PIN-коды не совпадают');
-      _focusNodes[0].requestFocus();
+      setState(() {
+        _errorMessage = 'PIN-коды не совпадают';
+        _isConfirming = false;
+        _pinBytes.fillRange(0, _pinBytes.length, 0);
+        _pinBytes = Uint8List(0);
+      });
+      _pinFocusNode.requestFocus();
       return;
     }
 
@@ -140,7 +137,6 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
     try {
       // 1. Store PBKDF2 hash in FlutterSecureStorage (CWE-922 + CWE-327)
-      //    No String created from PIN bytes (CWE-256).
       await PinSecurity.storePinHash(_pinBytes);
 
       // 2. Encrypt master key with PIN bytes — no String creation (CWE-256)
@@ -159,7 +155,11 @@ class _SetupPinScreenState extends State<SetupPinScreen>
       setState(() {
         _errorMessage = 'Ошибка сохранения PIN-кода';
         _isLoading = false;
+        _isConfirming = false;
+        _pinBytes.fillRange(0, _pinBytes.length, 0); 
+        _pinBytes = Uint8List(0);
       });
+      _pinFocusNode.requestFocus();
     }
   }
 
@@ -173,8 +173,9 @@ class _SetupPinScreenState extends State<SetupPinScreen>
     if (_isConfirming) {
       _pinBytes.fillRange(0, _pinBytes.length, 0);
       _pinBytes = Uint8List(0);
+      _pinController.clear();
       setState(() => _isConfirming = false);
-      _focusNodes[0].requestFocus();
+      _pinFocusNode.requestFocus();
     } else {
       Navigator.pop(context);
     }
@@ -182,6 +183,8 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
   @override
   Widget build(BuildContext context) {
+    final value = _pinController.text;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -253,55 +256,83 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
                   const SizedBox(height: 40),
 
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(6, (index) {
-                      return Container(
-                        width: 46,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: AppColors.input,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _focusNodes[index].hasFocus
-                                ? AppColors.button
-                                : Colors.transparent,
-                            width: 2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Hidden TextField to receive input
+                      Opacity(
+                        opacity: 0,
                         child: TextField(
-                          controller: _controllers[index],
-                          focusNode: _focusNodes[index],
-                          textAlign: TextAlign.center,
+                          controller: _pinController,
+                          focusNode: _pinFocusNode,
+                          autofocus: true,
                           keyboardType: TextInputType.number,
-                          obscureText: true,
+                          maxLength: 6,
+                          onChanged: _onPinInputChanged,
+                          showCursor: false,
+                          enableInteractiveSelection: false,
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(1),
                           ],
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.text,
-                          ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          onChanged: (value) => _isConfirming
-                              ? _onConfirmPinChanged()
-                              : _onPinChanged(),
                         ),
-                      );
-                    }),
+                      ),
+                      // Visual dots overlay
+                      GestureDetector(
+                        onTap: () => _pinFocusNode.requestFocus(),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: List.generate(6, (index) {
+                            final hasValue = value.length > index;
+                            return Container(
+                              width: 46,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: AppColors.input,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: value.length == index
+                                      ? AppColors.button
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: hasValue
+                                    ? Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.text,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                    ],
                   ),
+
+                  const SizedBox(height: 24),
+
+                  if (value.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: _clearInput,
+                      icon: const Icon(Icons.backspace_outlined, size: 16),
+                      label: const LText('Стереть всё'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.text.withOpacity(0.6),
+                      ),
+                    ),
 
                   const SizedBox(height: 24),
 
@@ -315,13 +346,11 @@ class _SetupPinScreenState extends State<SetupPinScreen>
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border:
-                            Border.all(color: Colors.red.withOpacity(0.3)),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
                       child: LText(
                         _errorMessage!,
-                        style:
-                            const TextStyle(color: Colors.red, fontSize: 14),
+                        style: const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 

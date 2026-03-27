@@ -173,7 +173,7 @@ class PasskeyService {
   }
 
   AndroidOptions _getAndroidOptions() =>
-      const AndroidOptions(encryptedSharedPreferences: true);
+      const AndroidOptions(encryptedSharedPreferences: false);
 
   IOSOptions _getIOSOptions() =>
       const IOSOptions(accessibility: KeychainAccessibility.first_unlock);

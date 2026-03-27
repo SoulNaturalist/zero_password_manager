@@ -47,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isProfileLoading = false;
   bool _hasSeedPhrase = false;
   bool _showHiddenFolders = false;
+  HiddenFolderAuthMethod _hiddenFolderMethod = HiddenFolderAuthMethod.totp;
 
   @override
   void initState() {
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadThemeSettings();
     _loadProfile();
     _showHiddenFolders = HiddenFolderService.instance.isUnlocked;
+    _loadHiddenFolderMethod();
   }
 
   Future<void> _loadDevices() async {
@@ -87,97 +89,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _showHiddenFolders = false);
       return;
     }
-
-    // Request TOTP before revealing hidden folders
-    final controller = TextEditingController();
-    final verified = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.button.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.shield_outlined, color: AppColors.button, size: 22),
-            ),
-            const SizedBox(width: 12),
-            LText(
-              'Скрытые папки',
-              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LText(
-              'Введите TOTP-код для отображения скрытых папок',
-              style: TextStyle(color: AppColors.text.withOpacity(0.7), fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            StatefulBuilder(
-              builder: (ctx2, setField) => TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                autofocus: true,
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 28,
-                  letterSpacing: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: InputDecoration(
-                  counterText: '',
-                  hintText: '000000',
-                  hintStyle: TextStyle(color: AppColors.text.withOpacity(0.3), letterSpacing: 12),
-                  filled: true,
-                  fillColor: AppColors.input,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: AppColors.button, width: 2),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.button,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () async {
-              final ok = await HiddenFolderService.instance.verifyTotp(controller.text.trim());
-              if (ctx.mounted) Navigator.pop(ctx, ok);
-            },
-            child: const LText('Подтвердить'),
-          ),
-        ],
-      ),
-    );
-
-    if (verified == true) {
+    final ok = await HiddenFolderService.instance.verifyWithSelectedMethod(context);
+    if (ok) {
       setState(() => _showHiddenFolders = true);
-    } else if (mounted && verified == false) {
+    } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
@@ -185,11 +100,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Icon(Icons.error_outline, color: Colors.white),
               SizedBox(width: 8),
-              LText('Неверный TOTP-код', style: TextStyle(color: Colors.white)),
+              LText('Ошибка верификации', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _loadHiddenFolderMethod() async {
+    final method = await HiddenFolderService.instance.getSavedMethod();
+    if (mounted) setState(() => _hiddenFolderMethod = method);
+  }
+
+  Future<void> _changeHiddenFolderMethod() async {
+    bool totpEnabled = false;
+    try {
+      final resp = await ApiService.get(AppConfig.profileUrl);
+      if (resp.statusCode == 200) {
+        totpEnabled = jsonDecode(resp.body)['totp_enabled'] ?? false;
+      }
+    } catch (_) {}
+
+    final methods = await HiddenFolderService.instance.getAvailableMethods(
+      totpEnabled: totpEnabled,
+    );
+
+    if (!mounted) return;
+
+    final selected = await showDialog<HiddenFolderAuthMethod>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: LText(
+          'Метод разблокировки',
+          style: TextStyle(
+            color: AppColors.text,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: HiddenFolderAuthMethod.values.map((method) {
+            final available = methods[method] ?? false;
+            return RadioListTile<HiddenFolderAuthMethod>(
+              value: method,
+              groupValue: _hiddenFolderMethod,
+              activeColor: AppColors.button,
+              onChanged: available ? (v) => Navigator.pop(ctx, v) : null,
+              title: Row(
+                children: [
+                  Icon(
+                    hiddenFolderMethodIcon(method),
+                    color: available
+                        ? AppColors.text
+                        : AppColors.text.withOpacity(0.3),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  LText(
+                    hiddenFolderMethodName(method),
+                    style: TextStyle(
+                      color: available
+                          ? AppColors.text
+                          : AppColors.text.withOpacity(0.3),
+                    ),
+                  ),
+                ],
+              ),
+              subtitle: !available
+                  ? LText(
+                      _methodUnavailableHint(method),
+                      style: TextStyle(
+                        color: AppColors.text.withOpacity(0.4),
+                        fontSize: 11,
+                      ),
+                    )
+                  : null,
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: LText(
+              'Отмена',
+              style: TextStyle(color: AppColors.text.withOpacity(0.6)),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && selected != _hiddenFolderMethod) {
+      await HiddenFolderService.instance.saveMethod(selected);
+      setState(() => _hiddenFolderMethod = selected);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green,
+            content: LText(
+              'Метод: ${hiddenFolderMethodName(selected)}',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  String _methodUnavailableHint(HiddenFolderAuthMethod method) {
+    switch (method) {
+      case HiddenFolderAuthMethod.biometric:
+        return 'Включите биометрию в настройках';
+      case HiddenFolderAuthMethod.pin:
+        return 'Настройте PIN-код';
+      case HiddenFolderAuthMethod.totp:
+        return 'Включите 2FA на сервере';
     }
   }
 
@@ -1424,7 +1452,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               LText(
                                 _showHiddenFolders
                                     ? 'Разблокировано на эту сессию'
-                                    : 'Требуется TOTP для включения',
+                                    : 'Метод: ${hiddenFolderMethodName(_hiddenFolderMethod)}',
                                 style: TextStyle(
                                   color: _showHiddenFolders
                                       ? AppColors.button.withOpacity(0.8)
@@ -1442,6 +1470,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                     ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  _buildSettingTile(
+                    icon: Icons.tune,
+                    title: 'Метод разблокировки',
+                    subtitle: hiddenFolderMethodName(_hiddenFolderMethod),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: _changeHiddenFolderMethod,
                   ),
 
                   const SizedBox(height: 24),

@@ -75,26 +75,14 @@ class _SplashScreenState extends State<SplashScreen> {
       // Start WebSocket if we have a session
       WsService().init();
       
-      if (hasPinHash) {
-        // User has a PIN → go to PIN screen to unlock vault.
+      final biometricEnabled = await BiometricService.isBiometricEnabled();
+      
+      if (hasPinHash || biometricEnabled) {
+        // User has a local protector → go to PIN/Bio screen to unlock vault.
         destination = const PinScreen();
       } else {
-        // No PIN set — require biometric unlock. We no longer keep a no-PIN
-        // master-key copy on disk because that weakens the E2E/local secrecy model.
-        final biometricEnabled = await BiometricService.isBiometricEnabled();
-        if (biometricEnabled) {
-          final secretB64 = await BiometricService.authenticate(
-            reason: 'Подтвердите отпечаток пальца для входа',
-          );
-          if (secretB64 != null) {
-            VaultService().setKey(SecretKey(base64.decode(secretB64)));
-            destination = const PasswordsScreen();
-          } else {
-            destination = const LoginScreen();
-          }
-        } else {
-          destination = const LoginScreen();
-        }
+        // Token exists, but no local protectors → must setup one (starting with PIN).
+        destination = const SetupPinScreen();
       }
     } else {
       destination = const LoginScreen();

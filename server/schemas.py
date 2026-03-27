@@ -73,6 +73,7 @@ class UserResponse(UserBase):
     password_count: int = 0
     totp_secret: Optional[str] = None
     totp_uri: Optional[str] = None
+    totp_enabled: bool = False
     has_seed_phrase: bool = False
 
     @model_validator(mode='before')
@@ -93,6 +94,7 @@ class ProfileResponse(UserBase):
     id: int
     salt: str
     telegram_chat_id: Optional[str] = None
+    totp_enabled: bool = False
 
     class Config:
         from_attributes = True

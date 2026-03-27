@@ -1,10 +1,13 @@
 import 'dart:ui';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/colors.dart';
 import '../widgets/themed_widgets.dart';
+import '../utils/api_service.dart';
 import '../utils/folder_service.dart';
 import '../utils/hidden_folder_service.dart';
 import '../services/vault_service.dart';
+import '../config/app_config.dart';
 import '../l10n/l_text.dart';
 
 /// Palette of preset colours the user can pick for a folder.
@@ -67,12 +70,35 @@ class FoldersScreen extends StatefulWidget {
 class _FoldersScreenState extends State<FoldersScreen> {
   List<Map<String, dynamic>> _folders = [];
   bool _isLoading = true;
+  bool _hasAnyAuthMethod = false;
   final _hiddenService = HiddenFolderService.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadFolders();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    await _checkAuthMethods();
+    await _loadFolders();
+  }
+
+  Future<void> _checkAuthMethods() async {
+    try {
+      bool totpEnabled = false;
+      try {
+        final response = await ApiService.get(AppConfig.profileUrl);
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          totpEnabled = data['totp_enabled'] ?? false;
+        }
+      } catch (_) {}
+      final hasAny = await _hiddenService.hasAnyMethodAvailable(
+        totpEnabled: totpEnabled,
+      );
+      if (mounted) setState(() => _hasAnyAuthMethod = hasAny);
+    } catch (_) {}
   }
 
   Future<void> _loadFolders() async {
@@ -107,97 +133,10 @@ class _FoldersScreenState extends State<FoldersScreen> {
     }
   }
 
-  // ── TOTP verification dialog ────────────────────────────────────────────────
+  // ── Unified unlock (uses user's preferred method) ────────────────────────
 
-  Future<bool> _requestTotp({String reason = 'Введите TOTP-код для доступа к скрытым папкам'}) async {
-    final controller = TextEditingController();
-    final verified = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.button.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.shield_outlined, color: AppColors.button, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: LText(
-                'Подтверждение',
-                style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LText(
-              reason,
-              style: TextStyle(color: AppColors.text.withOpacity(0.7), fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              maxLength: 6,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 26,
-                letterSpacing: 10,
-                fontWeight: FontWeight.bold,
-              ),
-              decoration: InputDecoration(
-                counterText: '',
-                hintText: '000000',
-                hintStyle: TextStyle(color: AppColors.text.withOpacity(0.3), letterSpacing: 10),
-                filled: true,
-                fillColor: AppColors.input,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: AppColors.button, width: 2),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
-          ),
-          StatefulBuilder(
-            builder: (ctx2, setBtn) => ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.button,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () async {
-                final ok = await _hiddenService.verifyTotp(controller.text.trim());
-                if (ctx2.mounted) Navigator.pop(ctx2, ok);
-              },
-              child: const LText('Подтвердить'),
-            ),
-          ),
-        ],
-      ),
-    );
-    return verified == true;
+  Future<bool> _requestUnlock() async {
+    return _hiddenService.verifyWithSelectedMethod(context);
   }
 
   // ── Folder dialog ───────────────────────────────────────────────────────────
@@ -314,7 +253,9 @@ class _FoldersScreenState extends State<FoldersScreen> {
                       ),
                       Switch(
                         value: isHidden,
-                        onChanged: (v) => setDialogState(() => isHidden = v),
+                        onChanged: _hasAnyAuthMethod
+                            ? (v) => setDialogState(() => isHidden = v)
+                            : null,
                         activeColor: AppColors.button,
                       ),
                     ],
@@ -410,6 +351,16 @@ class _FoldersScreenState extends State<FoldersScreen> {
               onPressed: () async {
                 final name = nameController.text.trim();
                 if (name.isEmpty) return;
+                
+                if (isHidden && !_hasAnyAuthMethod) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: AppColors.error,
+                      content: const LText('Настройте PIN, биометрию или 2FA для скрытых папок'),
+                    ),
+                  );
+                  return;
+                }
 
                 if (existing == null) {
                   await FolderService.createFolder(
@@ -482,7 +433,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
       Navigator.pop(context, folder);
       return;
     }
-    final ok = await _requestTotp();
+    final ok = await _requestUnlock();
     if (ok && mounted) {
       await _loadFolders();
       Navigator.pop(context, folder);
@@ -494,7 +445,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             children: [
               Icon(Icons.error_outline, color: Colors.white),
               SizedBox(width: 8),
-              LText('Неверный TOTP-код', style: TextStyle(color: Colors.white)),
+              LText('Ошибка верификации', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
@@ -531,7 +482,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                   HiddenFolderService.instance.lock();
                   await _loadFolders();
                 } else {
-                  final ok = await _requestTotp();
+                  final ok = await _requestUnlock();
                   if (ok) await _loadFolders();
                 }
               },

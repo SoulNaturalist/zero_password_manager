@@ -8,6 +8,7 @@ import '../utils/memory_security.dart';
 import '../utils/pin_security.dart';
 import '../services/vault_service.dart';
 import '../l10n/l_text.dart';
+import '../utils/memory_security.dart';
 
 /// PIN verification screen.
 ///
@@ -25,11 +26,8 @@ class PinScreen extends StatefulWidget {
 }
 
 class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
-  final List<TextEditingController> _controllers = List.generate(
-    6,
-    (index) => TextEditingController(),
-  );
-  final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
+  final TextEditingController _pinController = TextEditingController();
+  final FocusNode _pinFocusNode = FocusNode();
 
   late AnimationController _animationController;
   late AnimationController _shakeController;
@@ -48,6 +46,8 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
+  bool _showPinInput = false;
+  bool _hasPinHash = false;
 
   @override
   void initState() {
@@ -79,27 +79,40 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
     );
 
     _animationController.forward();
-    _checkLockout();
-    _checkBiometricAvailability();
+    _checkInitialState();
+  }
 
-    for (int i = 0; i < 6; i++) {
-      _controllers[i].addListener(() {
-        if (_controllers[i].text.length == 1 && i < 5) {
-          _focusNodes[i + 1].requestFocus();
-        }
+  Future<void> _checkInitialState() async {
+    await _checkLockout();
+    final hasPin = await PinSecurity.hasPinHash();
+    final bioAvailable = await BiometricService.isAvailable();
+    final bioEnabled = await BiometricService.isBiometricEnabled();
+
+    if (mounted) {
+      setState(() {
+        _hasPinHash = hasPin;
+        _biometricAvailable = bioAvailable;
+        _biometricEnabled = bioEnabled;
+        // If bio is available and enabled, don't show PIN input by default
+        _showPinInput = !bioEnabled || !bioAvailable || !hasPin;
       });
+    }
+
+    if (bioAvailable && bioEnabled) {
+      _authenticateWithBiometrics();
+    } else if (hasPin && !_isLocked) {
+      _pinFocusNode.requestFocus();
+    } else if (!hasPin && !bioEnabled) {
+      // Inconsistent state fallback
+      if (mounted) Navigator.pushReplacementNamed(context, '/setup-pin');
     }
   }
 
   @override
   void dispose() {
     _lockoutTimer?.cancel();
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
-    for (var node in _focusNodes) {
-      node.dispose();
-    }
+    _pinController.dispose();
+    _pinFocusNode.dispose();
     _animationController.dispose();
     _shakeController.dispose();
     _pinBytes.fillRange(0, _pinBytes.length, 0);
@@ -131,6 +144,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
             _lockoutRemaining = null;
             _errorMessage = null;
           });
+          _pinFocusNode.requestFocus();
         }
       } else {
         if (mounted) {
@@ -142,24 +156,37 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   // ── PIN input ─────────────────────────────────────────────────────────────
 
-  Uint8List _collectAndClearControllers() {
-    final bytes = Uint8List(6);
-    for (int i = 0; i < 6; i++) {
-      final text = _controllers[i].text;
-      bytes[i] = text.isNotEmpty ? text.codeUnitAt(0) : 0;
-      _controllers[i].clear();
+  Uint8List _collectBytesFromText(String text) {
+    final bytes = Uint8List(text.length);
+    for (int i = 0; i < text.length; i++) {
+      bytes[i] = text.codeUnitAt(i);
     }
     return bytes;
   }
 
-  void _onPinChanged() {
-    final entered = _controllers.map((c) => c.text).join();
+  void _onPinInputChanged(String value) {
     setState(() => _errorMessage = null);
 
-    if (entered.length == 6 && !_isLocked) {
-      _pinBytes = _collectAndClearControllers();
+    if (value.length == 6 && !_isLocked) {
+      _pinBytes = _collectBytesFromText(value);
+      wipeController(_pinController);
       _verifyPin();
     }
+  }
+
+  void _clearInput() {
+    _pinController.clear();
+    setState(() => _errorMessage = null);
+  }
+
+  void _togglePinInput() {
+    setState(() {
+      _showPinInput = true;
+      _errorMessage = null;
+    });
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_pinFocusNode.canRequestFocus) _pinFocusNode.requestFocus();
+    });
   }
 
   // ── PIN verification ──────────────────────────────────────────────────────
@@ -235,7 +262,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
         });
         _shakeController.forward().then((_) => _shakeController.reverse());
         await Future.delayed(const Duration(milliseconds: 300));
-        if (mounted) _focusNodes[0].requestFocus();
+        if (mounted) _pinFocusNode.requestFocus();
       }
     } catch (e) {
       setState(() {
@@ -283,51 +310,36 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   // ── Biometrics ────────────────────────────────────────────────────────────
 
-  Future<void> _checkBiometricAvailability() async {
-    final available = await BiometricService.isAvailable();
-    final enabled   = await BiometricService.isBiometricEnabled();
-    if (mounted) {
-      setState(() {
-        _biometricAvailable = available;
-        _biometricEnabled   = enabled;
-      });
-    }
-    if (available && enabled) {
-      _authenticateWithBiometrics();
-    }
-  }
-
   Future<void> _authenticateWithBiometrics() async {
     try {
       final success = await VaultService().tryUnlockWithBiometrics();
       if (success) {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
         if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/passwords',
-            (route) => false,
-          );
+          Navigator.pushNamedAndRemoveUntil(context, '/passwords', (route) => false);
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: Colors.orange,
-              content: LText(
-                'Биометрическая аутентификация не удалась. Используйте PIN-код.',
-              ),
-            ),
-          );
+          setState(() {
+            _errorMessage = _hasPinHash 
+                ? 'Биометрия не подошла. Используйте PIN.'
+                : 'Ошибка биометрии. Попробуйте войти заново.';
+          });
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Системная ошибка биометрии');
+      }
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final value = _pinController.text;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -340,46 +352,40 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  AnimatedBuilder(
-                    animation: _animationController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: 0.8 + (_animationController.value * 0.2),
-                        child: Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppColors.button.withOpacity(0.2),
-                                AppColors.button.withOpacity(0.1),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(40),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.button.withOpacity(0.3),
-                                blurRadius: 20,
-                                spreadRadius: 5,
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            Icons.lock_outline,
-                            size: 40,
-                            color: AppColors.button,
-                          ),
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.button.withOpacity(0.2),
+                          AppColors.button.withOpacity(0.1),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(40),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.button.withOpacity(0.3),
+                          blurRadius: 20,
+                          spreadRadius: 5,
                         ),
-                      );
-                    },
+                      ],
+                    ),
+                    child: Icon(
+                      _biometricEnabled && !_showPinInput
+                          ? Icons.fingerprint
+                          : Icons.lock_outline,
+                      size: 40,
+                      color: AppColors.button,
+                    ),
                   ),
 
                   const SizedBox(height: 40),
 
                   LText(
-                    'Введите PIN-код',
+                    _showPinInput ? 'Введите PIN-код' : 'Подтвердите личность',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -389,105 +395,154 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
                   const SizedBox(height: 8),
 
-                  const LText(
-                    'Для доступа к приложению',
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  LText(
+                    _showPinInput
+                        ? 'Для доступа к приложению'
+                        : (_biometricEnabled
+                            ? 'Используйте биометрию для входа'
+                            : 'Введите PIN-код'),
+                    style: const TextStyle(fontSize: 16, color: Colors.grey),
                   ),
 
                   const SizedBox(height: 40),
 
-                  // PIN fields (disabled while locked)
-                  AnimatedBuilder(
-                    animation: _shakeAnimation,
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(_shakeAnimation.value * 10, 0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(6, (index) {
-                            return Container(
-                              width: 46,
-                              height: 52,
-                              decoration: BoxDecoration(
-                                color: AppColors.input,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _focusNodes[index].hasFocus
-                                      ? AppColors.button
-                                      : Colors.transparent,
-                                  width: 2,
+                  if (_showPinInput)
+                    AnimatedBuilder(
+                      animation: _shakeAnimation,
+                      builder: (context, child) {
+                        return Transform.translate(
+                          offset: Offset(_shakeAnimation.value * 10, 0),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Opacity(
+                                opacity: 0,
+                                child: TextField(
+                                  controller: _pinController,
+                                  focusNode: _pinFocusNode,
+                                  enabled: !_isLocked && !_isLoading,
+                                  autofocus: true,
+                                  keyboardType: TextInputType.number,
+                                  maxLength: 6,
+                                  onChanged: _onPinInputChanged,
+                                  showCursor: false,
+                                  enableInteractiveSelection: false,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
                               ),
-                              child: TextField(
-                                controller: _controllers[index],
-                                focusNode: _focusNodes[index],
-                                enabled: !_isLocked && !_isLoading,
-                                textAlign: TextAlign.center,
-                                keyboardType: TextInputType.number,
-                                obscureText: true,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(1),
-                                ],
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.text,
+                              GestureDetector(
+                                onTap: () {
+                                  if (!_isLocked && !_isLoading) {
+                                    _pinFocusNode.requestFocus();
+                                  }
+                                },
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: List.generate(6, (index) {
+                                    final hasValue = value.length > index;
+                                    return Container(
+                                      width: 46,
+                                      height: 52,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.input,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: value.length == index &&
+                                                  !_isLocked &&
+                                                  !_isLoading
+                                              ? AppColors.button
+                                              : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.1),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: hasValue
+                                            ? Container(
+                                                width: 12,
+                                                height: 12,
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.text,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              )
+                                            : null,
+                                      ),
+                                    );
+                                  }),
                                 ),
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                onChanged: (value) => _onPinChanged(),
                               ),
-                            );
-                          }),
+                            ],
+                          ),
+                        );
+                      },
+                    )
+                  else if (_biometricEnabled && _biometricAvailable)
+                    Column(
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.fingerprint,
+                              size: 64, color: AppColors.button),
+                          onPressed: _authenticateWithBiometrics,
                         ),
-                      );
-                    },
-                  ),
+                        const SizedBox(height: 20),
+                        if (_hasPinHash)
+                          TextButton(
+                            onPressed: _togglePinInput,
+                            child: const LText('Использовать PIN-код'),
+                          ),
+                      ],
+                    ),
 
                   const SizedBox(height: 24),
 
-                  // Lockout countdown
+                  if (_showPinInput &&
+                      value.isNotEmpty &&
+                      !_isLocked &&
+                      !_isLoading)
+                    TextButton.icon(
+                      onPressed: _clearInput,
+                      icon: const Icon(Icons.backspace_outlined, size: 16),
+                      label: const LText('Стереть всё'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.text.withOpacity(0.6),
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
+
                   if (_isLocked && _lockoutRemaining != null)
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                          horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
                         color: Colors.orange.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border:
-                            Border.all(color: Colors.orange.withOpacity(0.5)),
+                        border: Border.all(color: Colors.orange.withOpacity(0.5)),
                       ),
                       child: LText(
                         'Повторите через ${_lockoutRemaining!.inMinutes}м '
                         '${(_lockoutRemaining!.inSeconds % 60).toString().padLeft(2, '0')}с',
-                        style: const TextStyle(
-                          color: Colors.orange,
-                          fontSize: 14,
-                        ),
+                        style:
+                            const TextStyle(color: Colors.orange, fontSize: 14),
                       ),
                     ),
 
-                  // Generic error message (CWE-200: no attempt count)
                   if (_errorMessage != null && !_isLocked)
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                          horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -495,8 +550,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                       ),
                       child: LText(
                         _errorMessage!,
-                        style:
-                            const TextStyle(color: Colors.red, fontSize: 14),
+                        style: const TextStyle(color: Colors.red, fontSize: 14),
                       ),
                     ),
 
@@ -509,37 +563,6 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
                     ),
 
                   const SizedBox(height: 40),
-
-                  const LText(
-                    'Используйте PIN-код для быстрого доступа',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  if (_biometricAvailable && _biometricEnabled && !_isLocked) ...[
-                    const SizedBox(height: 20),
-                    ElevatedButton.icon(
-                      onPressed: _authenticateWithBiometrics,
-                      icon:
-                          const Icon(Icons.fingerprint, color: Colors.white),
-                      label: const LText(
-                        'Использовать биометрию',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.button,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 20),
 
                   TextButton(
                     onPressed: () =>

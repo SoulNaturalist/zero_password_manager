@@ -160,6 +160,14 @@ class VaultService {
       final pinKey       = await _crypto.deriveMasterKey(pin, salt);
       final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
       _masterKey = SecretKey(base64.decode(decryptedB64));
+      
+      // Auto-repair biometric secret if enabled
+      if (await BiometricService.isBiometricEnabled()) {
+        final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
+        await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+        keyBytes.fillRange(0, keyBytes.length, 0);
+      }
+      
       return true;
     } catch (_) {
       return false;
@@ -180,6 +188,14 @@ class VaultService {
       final pinKey       = await _crypto.deriveMasterKeyFromBytes(pinBytes, salt);
       final decryptedB64 = await _crypto.decrypt(pinKey, encryptedKey);
       _masterKey = SecretKey(base64.decode(decryptedB64));
+      
+      // Auto-repair biometric secret if enabled
+      if (await BiometricService.isBiometricEnabled()) {
+        final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
+        await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+        keyBytes.fillRange(0, keyBytes.length, 0);
+      }
+      
       return true;
     } catch (_) {
       return false;
