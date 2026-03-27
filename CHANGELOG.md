@@ -51,6 +51,7 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Ip white list
 - Ip white list
 - Add app localization and language settings
+- Secret folders open by biometry / totp / pincode
 
 ---
 
