@@ -1,424 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Security headers as meta equivalents.
-         'wasm-unsafe-eval' is required by Flutter web (Dart → WebAssembly).
-         Adjust connect-src when pointing at a remote API host. -->
+    
+    <!-- ==================== SEO ==================== -->
+    <meta name="description" content="Zero Vault v0.2.1 — premium self-hosted zero-knowledge password manager. AES-256-GCM encryption, Argon2id, instant biometrics, Redis rate limiting, Docker (SQLite/PostgreSQL). No cloud, 100% privacy.">
+    <meta name="keywords" content="zero vault, self hosted password manager, zero knowledge password manager, open source password manager, docker password manager, flutter password manager, aes-256-gcm, argon2id, redis rate limiting, self-hosted vault, privacy first password manager">
+    <meta name="robots" content="index, follow">
+    <meta name="author" content="NK_TRIPLLE">
+    <link rel="canonical" href="https://github.com/SoulNaturalist/zero_password_manager">
+    <meta name="theme-color" content="#5d52d2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- Security headers (Flutter Web compatible) -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self';
-                   script-src 'self' 'wasm-unsafe-eval';
-                   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-                   font-src 'self' https://fonts.gstatic.com;
-                   img-src 'self' https://logo.clearbit.com data: assets/;
-                   connect-src 'self';
-                   frame-ancestors 'none';
-                   base-uri 'self';
-                   form-action 'self';">
+          content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://logo.clearbit.com; connect-src 'self'; frame-ancestors 'none';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta http-equiv="X-Frame-Options" content="DENY">
-    <meta name="referrer" content="strict-origin-when-cross-origin">
-    <title>Zero Password Manager | Absolute Privacy • Self-Hosted • No Cloud</title>
-    <meta name="description"
-        content="🔐 Zero Password Manager: The premium, privacy-first, self-hosted vault. AES-256-GCM encryption, Cyberpunk UI, and 100% data ownership. No cloud, no tracking.">
-    <meta name="keywords"
-        content="Password Manager, Self-hosted, Zero-Knowledge, Privacy-first, No Cloud, Flutter, FastAPI, AES-256, Cyberpunk UI, Glassmorphism, Open Source, Security, 2FA, TOTP, Vault">
 
-    <!-- Open Graph / Facebook -->
+    <title>Zero Vault | Absolute Privacy • Self-Hosted • No Cloud</title>
+
+    <!-- Open Graph / Twitter -->
     <meta property="og:type" content="website">
+    <meta property="og:title" content="Zero Vault v0.2.1 | Absolute Privacy • Self-Hosted Password Manager">
+    <meta property="og:description" content="Your data. Your server. Your rules. Zero-Knowledge AES-256-GCM, instant biometrics, Redis protection, Docker-ready.">
     <meta property="og:url" content="https://github.com/SoulNaturalist/zero_password_manager">
-    <meta property="og:title" content="Zero Password Manager | Absolute Privacy • Self-Hosted">
-    <meta property="og:description"
-        content="Stop storing secrets in the cloud. Host your own encrypted vault with a stunning Cyberpunk UI. Built with Flutter & FastAPI.">
     <meta property="og:image" content="assets/demo.gif">
+    <meta property="og:site_name" content="Zero Vault">
 
-    <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://github.com/SoulNaturalist/zero_password_manager">
-    <meta property="twitter:title" content="Zero Password Manager | Privacy-First & Self-Hosted">
-    <meta property="twitter:description"
-        content="Host your own encrypted password vault. No cloud, no tracking, just you and your data. Stunning native Flutter UI.">
+    <meta property="twitter:title" content="Zero Vault v0.2.1 | Privacy-First Self-Hosted Password Manager">
+    <meta property="twitter:description" content="Host your own encrypted vault. Instant biometrics, Redis hardening, Docker-ready. No cloud. No tracking.">
     <meta property="twitter:image" content="assets/demo.gif">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
     <style>
-        :root {
-            --bg: #0d0d12;
-            --primary: #5d52d2;
-            --accent: #00ffff;
-            --secondary: #ff0080;
-            --text: #ffffff;
-            --text-dim: #a0a0c0;
-            --glass: rgba(255, 255, 255, 0.05);
-            --glass-border: rgba(255, 255, 255, 0.1);
+        :root { 
+            --bg: #0d0d12; 
+            --primary: #5d52d2; 
+            --accent: #00ffff; 
+            --secondary: #ff0080; 
+            --text: #ffffff; 
+            --text-dim: #a0a0c0; 
+            --glass: rgba(255,255,255,0.05); 
+            --glass-border: rgba(255,255,255,0.1); 
         }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; overflow-x: hidden; line-height: 1.6; }
+        
+        .bg-glow { position:fixed; inset:0; z-index:-1; background: radial-gradient(circle at 20% 30%, rgba(93,82,210,0.15), transparent 40%), radial-gradient(circle at 80% 70%, rgba(0,255,255,0.1), transparent 40%); }
+        .scanline { position:fixed; inset:0; z-index:1000; pointer-events:none; opacity:0.08; background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.3) 50%), linear-gradient(to right, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04)); background-size: 100% 4px, 4px 100%; }
+        
+        nav { display:flex; justify-content:space-between; align-items:center; padding:1.5rem 8%; position:sticky; top:0; z-index:1000; background:rgba(13,13,18,0.85); backdrop-filter:blur(12px); border-bottom: 1px solid var(--glass-border); }
+        .logo { font-size:1.35rem; font-weight:800; letter-spacing:-1px; display:flex; align-items:center; gap:8px; text-decoration: none; color: inherit; }
+        .logo .accent { color:var(--accent); }
+        
+        .nav-controls { display:flex; align-items:center; gap:20px; }
+        .lang-switch { display:flex; gap:4px; background:var(--glass); padding:4px; border-radius:9999px; border:1px solid var(--glass-border); }
+        .lang-btn { padding:6px 14px; border-radius:9999px; font-size:0.8rem; font-weight:700; cursor:pointer; transition:all .3s; color: var(--text-dim); }
+        .lang-btn.active { background:var(--primary); color:white; box-shadow: 0 4px 12px rgba(93,82,210,0.3); }
+        
+        .btn-github { padding: 10px 20px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; text-decoration: none; color: white; background: var(--glass); border: 1px solid var(--glass-border); transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+        .btn-github:hover { background: var(--primary); border-color: var(--primary); transform: translateY(-2px); }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        header { padding:6rem 8% 4rem; text-align:center; display:flex; flex-direction:column; align-items:center; gap:2rem; }
+        .badge { display: inline-block; background:var(--glass); padding:8px 18px; border-radius:9999px; border:1px solid var(--glass-border); color:var(--accent); font-size:0.75rem; font-family:'JetBrains Mono',monospace; text-transform:uppercase; letter-spacing:1.5px; }
+        .badge-v021 { background:linear-gradient(90deg, var(--accent), var(--primary)); color:#0d0d12; font-weight:800; border: none; }
+        
+        h1 { font-size:4.8rem; font-weight:800; line-height:1; background:linear-gradient(to right,#fff,#a0a0c0); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; max-width: 900px; }
+        h1 span { display: block; filter: drop-shadow(0 0 30px rgba(93,82,210,0.3)); }
+        
+        .subtitle { font-size:1.4rem; color:var(--text-dim); max-width:680px; }
+        
+        .hero-visual { position: relative; width: 100%; max-width: 340px; margin-top: 3rem; }
+        .hero-visual img { width: 100%; border-radius: 40px; border: 1px solid var(--glass-border); box-shadow: 0 40px 100px rgba(0,0,0,0.6); }
+        .hero-glow { position: absolute; inset: -15%; background: radial-gradient(circle, rgba(93,82,210,0.25), transparent 70%); z-index: -1; }
 
-        body {
-            background-color: var(--bg);
-            color: var(--text);
-            font-family: 'Outfit', sans-serif;
-            overflow-x: hidden;
-            line-height: 1.6;
-        }
+        .features { padding: 6rem 8%; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem; }
+        .card { background:var(--glass); border:1px solid var(--glass-border); padding:3rem; border-radius:32px; backdrop-filter:blur(12px); transition:all .4s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; flex-direction: column; gap: 1.5rem; }
+        .card:hover { border-color:var(--accent); transform:translateY(-12px); background: rgba(255,255,255,0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+        .icon-box { width: 56px; height: 56px; background: var(--primary); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; box-shadow: 0 8px 16px rgba(93,82,210,0.2); }
+        .card h3 { font-size: 1.8rem; font-weight: 700; color: #fff; }
+        .card p { color: var(--text-dim); font-size: 1.1rem; }
 
-        /* --- Background Animation --- */
-        .bg-glow {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-            background: radial-gradient(circle at 20% 30%, rgba(93, 82, 210, 0.15), transparent 40%),
-                radial-gradient(circle at 80% 70%, rgba(0, 255, 255, 0.1), transparent 40%);
-        }
+        .security-tech { padding: 8rem 8%; text-align: center; background: rgba(9,9,13,0.5); }
+        .security-tech h2 { font-size: 3rem; font-weight: 800; margin-bottom: 4rem; }
+        .tech-tags { display:flex; justify-content:center; flex-wrap:wrap; gap:16px; max-width: 1000px; margin: 0 auto; }
+        .tag { background:#1a1a24; padding:12px 24px; border-radius:16px; font-family:'JetBrains Mono',monospace; border:1px solid rgba(255,255,255,0.08); color: var(--text-dim); font-size: 1rem; }
+        .tag strong { color: var(--accent); }
 
-        .scanline {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(to bottom, rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
-                linear-gradient(to right, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            background-size: 100% 4px, 3px 100%;
-            pointer-events: none;
-            z-index: 1000;
-            opacity: 0.1;
-        }
+        footer { padding: 6rem 8% 4rem; border-top: 1px solid var(--glass-border); text-align: center; }
+        .footer-content { opacity: 0.6; font-size: 0.95rem; }
+        .footer-content p { margin-bottom: 8px; }
 
-        /* --- Navbar --- */
-        nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 2rem 10%;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background: rgba(13, 13, 18, 0.8);
-            backdrop-filter: blur(10px);
-        }
-
-        .logo {
-            font-size: 1.3rem;
-            /* Slightly smaller logo */
-            font-weight: 800;
-            letter-spacing: -1px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            /* Tight gap between icon and text */
-        }
-
-        .logo span.brand {
-            color: var(--text);
-        }
-
-        .logo span.accent {
-            color: var(--accent);
-            margin-left: 0px;
-            /* Ensure no extra space */
-        }
-
-        .btn-github {
-            padding: 0.5rem 1.2rem;
-            /* Compact padding */
-            font-size: 0.9rem;
-            /* Smaller font */
-            background: var(--primary);
-            color: white;
-            text-decoration: none;
-            border-radius: 10px;
-            /* Slightly tighter radius */
-            font-weight: 600;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .btn-github:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(93, 82, 210, 0.3);
-            background: #6e64df;
-        }
-
-        /* --- Hero Section --- */
-        header {
-            padding: 4rem 10% 8rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        .badge {
-            background: var(--glass);
-            padding: 8px 16px;
-            border-radius: 100px;
-            border: 1px solid var(--glass-border);
-            color: var(--accent);
-            font-size: 0.9rem;
-            font-family: 'JetBrains Mono', monospace;
-            margin-bottom: 2rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        h1 {
-            font-size: 4.5rem;
-            font-weight: 800;
-            max-width: 900px;
-            margin-bottom: 1.5rem;
-            line-height: 1.1;
-            background: linear-gradient(to right, #fff, #a0a0c0);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .subtitle {
-            font-size: 1.25rem;
-            color: var(--text-dim);
-            max-width: 600px;
-            margin-bottom: 3rem;
-        }
-
-        .demo-container {
-            position: relative;
-            max-width: 320px;
-            /* Reduced for phone-like feel on desktop */
-            width: 100%;
-            margin: 4rem auto 0;
-        }
-
-        .demo-container img {
-            width: 100%;
-            border-radius: 24px;
-            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--glass-border);
-        }
-
-        .demo-glow {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 110%;
-            height: 110%;
-            background: radial-gradient(circle, rgba(93, 82, 210, 0.2), transparent 70%);
-            z-index: -1;
-        }
-
-        /* --- Features Section --- */
-        .features {
-            padding: 8rem 10%;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-        }
-
-        .card {
-            background: var(--glass);
-            border: 1px solid var(--glass-border);
-            padding: 3rem;
-            border-radius: 32px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s ease;
-        }
-
-        .card:hover {
-            border-color: var(--accent);
-            transform: translateY(-10px);
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .card h3 {
-            font-size: 1.8rem;
-            margin-bottom: 1rem;
-            color: var(--accent);
-        }
-
-        .card p {
-            color: var(--text-dim);
-        }
-
-        .icon-box {
-            width: 64px;
-            height: 64px;
-            background: var(--primary);
-            border-radius: 16px;
-            margin-bottom: 2rem;
-            display: flex;
-            width: 54px;
-            height: 54px;
-            background: var(--primary);
-            border-radius: 14px;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.4rem;
-        }
-
-        /* --- Security List --- */
-        .security {
-            padding: 8rem 10%;
-            background: #09090d;
-            text-align: center;
-        }
-
-        .security h2 {
-            font-size: 3rem;
-            margin-bottom: 4rem;
-        }
-
-        .tech-tags {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        .tag {
-            background: #1a1a24;
-            padding: 12px 24px;
-            border-radius: 12px;
-            font-family: 'JetBrains Mono', monospace;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            color: #ccc;
-        }
-
-        .tag strong {
-            color: var(--secondary);
-        }
-
-        footer {
-            padding: 4rem 10%;
-            border-top: 1px solid var(--glass-border);
-            text-align: center;
-            color: var(--text-dim);
-        }
-
-        @media (max-width: 1100px) {
-            .features {
-                grid-template-columns: repeat(2, 1fr);
-                padding: 6rem 5%;
-            }
-        }
-
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 3rem;
-            }
-
-            nav {
-                padding: 2rem 5%;
-            }
-
-            header {
-                padding: 4rem 5%;
-            }
-
-            .features {
-                grid-template-columns: 1fr;
-            }
+        [data-lang] { display: none; }
+        
+        @media (max-width:768px) { 
+            h1 {font-size:3.2rem;} 
+            nav {padding:1rem 5%;} 
+            header { padding: 4rem 5%; }
+            .features { padding: 4rem 5%; }
+            .card { padding: 2rem; }
         }
     </style>
-</head>
 
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Zero Vault",
+      "description": "Premium self-hosted zero-knowledge password manager with AES-256-GCM encryption and Docker support",
+      "url": "https://github.com/SoulNaturalist/zero_password_manager",
+      "applicationCategory": "SecurityApplication",
+      "operatingSystem": "iOS, Android, Web, Windows, macOS, Linux",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "NK_TRIPLLE"
+      }
+    }
+    </script>
+</head>
 <body>
     <div class="bg-glow"></div>
     <div class="scanline"></div>
 
     <nav>
-        <div class="logo">
+        <a href="#" class="logo">
             <span>🔐</span>
-            <span class="brand">ZERO<span class="accent">PASS</span></span>
+            <span class="brand">ZERO<span class="accent">VAULT</span></span>
+        </a>
+        <div class="nav-controls">
+            <div class="lang-switch">
+                <div onclick="switchLang('en')" id="lang-en" class="lang-btn active">EN</div>
+                <div onclick="switchLang('ru')" id="lang-ru" class="lang-btn">RU</div>
+            </div>
+            <a href="https://github.com/SoulNaturalist/zero_password_manager" target="_blank" class="btn-github">
+                <span>GitHub</span>
+                <span class="badge badge-v021">v0.2.1</span>
+            </a>
         </div>
-        <a href="https://github.com/SoulNaturalist/zero_password_manager" class="btn-github">GitHub Repository</a>
     </nav>
 
     <header>
-        <div class="badge">Privacy-First • No Cloud</div>
-        <h1>Your Data. Your Server. <span>Your Rules.</span></h1>
-        <p class="subtitle">A premium, self-hosted password manager with Zero-Knowledge encryption and stunning
-            Cyberpunk aesthetics.</p>
+        <div data-lang="en" class="badge">Absolute Privacy • Self-Hosted • No Cloud</div>
+        <div data-lang="ru" class="badge">Абсолютная приватность • Self-Hosted • Без облака</div>
+        
+        <h1 data-lang="en">Your Data. Your Server. <span>Your Rules.</span></h1>
+        <h1 data-lang="ru">Ваши данные. Ваш сервер. <span>Ваши правила.</span></h1>
+        
+        <p data-lang="en" class="subtitle">A premium, self-hosted password manager with Zero-Knowledge encryption and stunning Cyberpunk aesthetics.</p>
+        <p data-lang="ru" class="subtitle">Премиальный менеджер паролей на вашем сервере. Zero-Knowledge шифрование и безупречный киберпанк-дизайн.</p>
 
-        <div class="demo-container">
-            <div class="demo-glow"></div>
-            <img src="assets/demo.gif" alt="Zero Password Manager Demo">
+        <div class="hero-visual">
+            <div class="hero-glow"></div>
+            <img src="assets/demo.gif" alt="Zero Vault Demo">
         </div>
     </header>
 
     <section class="features">
+        <!-- Feature 1 -->
         <div class="card">
             <div class="icon-box">☁️</div>
-            <h3>Pure Self-Hosting</h3>
-            <p>Your passwords never touch the cloud. Host your own data on your own hardware using our lightweight
-                FastAPI backend.</p>
+            <div data-lang="en">
+                <h3>Pure Self-Hosting</h3>
+                <p>Your passwords never touch the cloud. Host your own data on your own hardware using our lightweight Docker-ready stack.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Чистый Self-Hosting</h3>
+                <p>Ваши пароли никогда не попадут в облако. Разверните систему на своем оборудовании через Docker за считанные минуты.</p>
+            </div>
         </div>
+
+        <!-- Feature 2 -->
         <div class="card">
             <div class="icon-box">🛡️</div>
-            <h3>Hardened 2FA</h3>
-            <p>Mandatory TOTP setup during registration. Critical actions are gated by one-time passwords with replay
-                protection.</p>
+            <div data-lang="en">
+                <h3>Hardened 2FA</h3>
+                <p>Mandatory TOTP setup. Critical actions are gated by one-time passwords with Redis-backed rate limiting and protection.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Усиленная 2FA</h3>
+                <p>Обязательная настройка TOTP. Критические действия защищены разовыми паролями с защитой от перебора через Redis.</p>
+            </div>
         </div>
-        <div class="card">
-            <div class="icon-box">🎨</div>
-            <h3>Dynamic Themes</h3>
-            <p>Switch between Midnight Dark, Cyberpunk, and Glassmorphism themes. A UI designed to be as beautiful as it
-                is secure.</p>
-        </div>
+
+        <!-- Feature 3 -->
         <div class="card">
             <div class="icon-box">🔓</div>
-            <h3>Fully Open & Custom</h3>
-            <p>The code is yours. Use our FastAPI/SQLite stack or plug in your own backend and database. Total freedom
-                to audit and modify.</p>
+            <div data-lang="en">
+                <h3>Zero-Knowledge</h3>
+                <p>Encryption happens on your device. Your master password never leaves the app, ensuring total privacy even from the server host.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Zero-Knowledge</h3>
+                <p>Шифрование происходит на вашем устройстве. Мастер-пароль не покидает приложение, гарантируя приватность даже от хоста.</p>
+            </div>
         </div>
+
+        <!-- Feature 4 -->
+        <div class="card">
+            <div class="icon-box">🎨</div>
+            <div data-lang="en">
+                <h3>Premium Aesthetics</h3>
+                <p>Switch between Midnight Dark, Cyberpunk, and Glassmorphism themes. A UI designed to be as beautiful as it is secure.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Премиальный Дизайн</h3>
+                <p>Возвращайтесь к эстетике Midnight Dark, Cyberpunk или Glassmorphism. Интерфейс, который так же красив, как и безопасен.</p>
+            </div>
+        </div>
+
+        <!-- Feature 5 -->
         <div class="card">
             <div class="icon-box">📱</div>
-            <h3>iOS, Android & Web</h3>
-            <p>Built with Flutter for a truly native experience. Deploy on mobile or access via any browser with 100%
-                feature parity.</p>
+            <div data-lang="en">
+                <h3>Multi-Platform</h3>
+                <p>Built with Flutter for total parity across iOS, Android, and Web. Native performance on all your devices.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Мультиплатформа</h3>
+                <p>Создано на Flutter для полной идентичности на iOS, Android и в Web. Нативная производительность на всех устройствах.</p>
+            </div>
         </div>
+
+        <!-- Feature 6 -->
         <div class="card">
-            <div class="icon-box">🧠</div>
-            <h3>Zero-Knowledge</h3>
-            <p>Encryption happens on your device. Your master password never leaves the app, ensuring even the server
-                host can't see your data.</p>
+            <div class="icon-box">🚀</div>
+            <div data-lang="en">
+                <h3>Fast & Lightweight</h3>
+                <p>Powered by FastAPI and Argon2id. Instant biometrics unlock and seamless synchronization across your vault.</p>
+            </div>
+            <div data-lang="ru">
+                <h3>Быстро и Легко</h3>
+                <p>Работает на FastAPI и Argon2id. Мгновенная биометрия и бесшовная синхронизация данных вашего хранилища.</p>
+            </div>
         </div>
     </section>
 
-    <section class="security">
-        <h2>Hardened Infrastructure</h2>
+    <section class="security-tech">
+        <h2 data-lang="en">Hardened Infrastructure</h2>
+        <h2 data-lang="ru">Защищённая Инфраструктура</h2>
+        
         <div class="tech-tags">
             <div class="tag">🔐 Encryption: <strong>AES-256-GCM</strong></div>
             <div class="tag">🔑 KDF: <strong>Argon2id</strong></div>
             <div class="tag">📱 App: <strong>Flutter / Dart</strong></div>
             <div class="tag">🐍 Backend: <strong>FastAPI / Python</strong></div>
-            <div class="tag">💾 Database: <strong>SQLAlchemy / SQLite</strong></div>
-            <div class="tag">🛡️ Auth: <strong>JWT + TOTP</strong></div>
+            <div class="tag">💾 Database: <strong>PostgreSQL / SQLite</strong></div>
+            <div class="tag">🛡️ Security: <strong>Redis / Rate Limit</strong></div>
         </div>
     </section>
 
     <footer>
-        <p>&copy; 2026 Zero Password Manager. Created by <strong>NK_TRIPLLE</strong> with 💖 for Security.</p>
-        <p style="margin-top: 1rem; font-size: 0.8rem;">Licensed under PolyForm Noncommercial License 1.0.0</p>
+        <div class="footer-content">
+            <p data-lang="en">&copy; 2026 Zero Vault. Developed by <strong>NK_TRIPLLE</strong> with Security first.</p>
+            <p data-lang="ru">&copy; 2026 Zero Vault. Разработано <strong>NK_TRIPLLE</strong> с приоритетом безопасности.</p>
+            <p style="margin-top: 1rem; font-size: 0.8rem;">Licensed under PolyForm Noncommercial License 1.0.0</p>
+        </div>
     </footer>
-</body>
 
+    <script>
+        function switchLang(lang) {
+            document.querySelectorAll('[data-lang]').forEach(el => {
+                el.style.display = el.getAttribute('data-lang') === lang ? 'block' : 'none';
+                // If it was flex or grid, we might need more complex logic, 
+                // but here block/none works for our structure.
+                if (el.getAttribute('data-lang') === lang) {
+                    // Check if it's a block-level element or needs special display
+                    const tagName = el.tagName.toLowerCase();
+                    if (tagName === 'span' || tagName === 'div' && el.classList.contains('badge')) {
+                        el.style.display = 'inline-block';
+                    } else if (el.classList.contains('lang-btn')) {
+                         el.style.display = 'block';
+                    }
+                }
+            });
+            
+            document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+            document.getElementById('lang-ru').classList.toggle('active', lang === 'ru');
+            document.documentElement.lang = lang;
+            
+            // Persist preference
+            localStorage.setItem('zero_vault_lang', lang);
+        }
+
+        window.onload = () => {
+            const savedLang = localStorage.getItem('zero_vault_lang') || 'en';
+            switchLang(savedLang);
+        };
+    </script>
+</body>
 </html>

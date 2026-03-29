@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zero_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zero_password}
+      POSTGRES_DB: ${POSTGRES_DB:-zero_vault}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zero_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zero_user}:${POSTGRES_PASSWORD:-zero_password}@db:5432/${POSTGRES_DB:-zero_vault}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SEED_PHRASE_KEY: ${SEED_PHRASE_KEY}
+      TOTP_MASTER_KEY: ${TOTP_MASTER_KEY}
+      DEVICE_SECRET: ${DEVICE_SECRET}
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:

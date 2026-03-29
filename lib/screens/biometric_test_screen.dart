@@ -28,7 +28,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
     });
 
     try {
-      final info = await BiometricService.getDiagnosticInfo();
+      final info = await BiometricService().getDiagnosticInfo();
       setState(() {
         _diagnosticInfo = info;
         _isLoading = false;
@@ -48,7 +48,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
     });
 
     try {
-      final result = await BiometricService.authenticate(
+      final result = await BiometricService().authenticate(
         reason: 'Тестирование биометрической аутентификации',
       );
 
@@ -70,7 +70,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
     });
 
     try {
-      final success = await BiometricService.forceEnableBiometrics();
+      final success = await BiometricService().forceEnableBiometrics();
 
       if (success) {
         setState(() {
@@ -99,7 +99,7 @@ class _BiometricTestScreenState extends State<BiometricTestScreen> {
     });
 
     try {
-      await BiometricService.resetBiometricSettings();
+      await BiometricService().resetBiometricSettings();
       setState(() {
         _testResult = 'Настройки биометрии сброшены';
       });

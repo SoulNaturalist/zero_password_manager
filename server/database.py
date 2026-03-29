@@ -1,33 +1,32 @@
 from collections.abc import Generator
-
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from server.config import settings
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./zero_vault.db"
+# Database connection URL from settings (fail-fast if missing)
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# Engine configuration
+is_sqlite = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False} if is_sqlite else {}
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args=connect_args,
 )
 
-
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragmas(dbapi_connection, _connection_record):
-    """
-    Apply security and performance PRAGMAs on every new SQLite connection.
-
-    WAL mode:    allows concurrent readers during writes (avoids lock contention).
-    foreign_keys: enforce FK constraints (SQLite ignores them by default).
-    busy_timeout: prevent "database is locked" errors under load.
-    synchronous NORMAL: safe with WAL; faster than FULL without data-loss risk.
-    """
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=5000")
-    cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.close()
-
+if is_sqlite:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+        """
+        Apply security and performance PRAGMAs on every new SQLite connection.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -535,8 +535,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadBiometricSettings() async {
     try {
-      final biometricAvailable = await BiometricService.isAvailable();
-      final biometricEnabled = await BiometricService.isBiometricEnabled();
+      final biometricAvailable = await BiometricService().isAvailable();
+      final biometricEnabled = await BiometricService().isBiometricEnabled();
 
       setState(() {
         _biometricAvailable = biometricAvailable;
@@ -553,6 +553,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleBiometric(bool value) async {
+    final biometric = BiometricService();
     if (value) {
       // ── Step 1: Guard — vault must be unlocked ─────────────────────────────
       final vault = VaultService();
@@ -569,7 +570,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       // ── Step 2: Check biometric hardware availability ─────────────────────
-      final available = await BiometricService.isAvailable();
+      final available = await biometric.isAvailable();
       if (!available) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -591,10 +592,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final keyB64 = base64.encode(keyBytes);
         (keyBytes as Uint8List).fillRange(0, keyBytes.length, 0);
 
-        final stored = await BiometricService.storeBiometricSecret(keyB64);
+        final stored = await biometric.storeBiometricSecret(keyB64);
 
         if (stored) {
-          await BiometricService.setBiometricEnabled(true);
+          await biometric.setBiometricEnabled(true);
           setState(() => _biometricEnabled = true);
           if (mounted) _showBiometricSuccessAnimation();
         } else {
@@ -648,7 +649,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (confirmed == true) {
         try {
-          await BiometricService.setBiometricEnabled(false);
+          await biometric.setBiometricEnabled(false);
           setState(() {
             _biometricEnabled = false;
           });
@@ -679,7 +680,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _showBiometricDiagnostics() async {
     try {
-      final diagnosticInfo = await BiometricService.getDiagnosticInfo();
+      final diagnosticInfo = await BiometricService().getDiagnosticInfo();
 
       if (mounted) {
         showDialog(
@@ -1339,18 +1340,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   // Биометрическая аутентификация
                   if (_biometricAvailable)
-                    _buildSettingTile(
-                      icon: Icons.fingerprint,
-                      title: _biometricType,
-                      subtitle:
-                          _biometricEnabled
+                    ValueListenableBuilder<bool>(
+                      valueListenable: BiometricService().isEnabledNotifier,
+                      builder: (context, isEnabled, child) {
+                        return _buildSettingTile(
+                          icon: Icons.fingerprint,
+                          title: _biometricType,
+                          subtitle: isEnabled
                               ? 'Биометрическая аутентификация включена'
                               : 'Биометрическая аутентификация отключена',
-                      trailing: Switch(
-                        value: _biometricEnabled,
-                        onChanged: _toggleBiometric,
-                        activeColor: AppColors.button,
-                      ),
+                          trailing: Switch(
+                            value: isEnabled,
+                            onChanged: _toggleBiometric,
+                            activeColor: AppColors.button,
+                          ),
+                        );
+                      },
                     ),
 
                   // Диагностика биометрии
@@ -1677,7 +1682,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildSettingTile(
                     icon: Icons.info_outline,
                     title: 'Версия приложения',
-                    subtitle: '0.2.1',
+                    subtitle: '0.2.0',
                   ),
 
                   // О приложении

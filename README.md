@@ -19,7 +19,8 @@
 <br>
 
 [![Download APK](https://img.shields.io/github/v/release/SoulNaturalist/zero_password_manager?label=Download%20APK&logo=android&logoColor=white&color=4CAF50&style=for-the-badge)](https://github.com/SoulNaturalist/zero_password_manager/releases/latest)
-[![Feature Guide](https://img.shields.io/badge/Feature%20Guide-Explore%20Capabilities-8b5cf6?style=for-the-badge)](FEATURES.md)
+[![Feature Guide](https://img.shields.io/badge/Feature%20Guide-Explore%20Capabilities-8b5cf6?style=for-the-badge)](docs/FEATURES.md)
+[![How it Works](https://img.shields.io/badge/How%20it%20Works-Technical%20Core-5d52d2?style=for-the-badge)](docs/CORE.md)
 
 <br>
 
@@ -55,9 +56,12 @@ Combined with client-side encryption that ensures the server is **cryptographica
 
 ---
 
-## 📚 Detailed Feature Guide
+## 📚 Documentation & Guides
 
-Want the polished product tour? Read the full **[Feature Guide](FEATURES.md)** for a categorized overview of security, vault organization, sharing, recovery, passkeys, biometrics, and platform support.
+Detailed material for both users and security-conscious developers:
+
+- **[Feature Guide](docs/FEATURES.md)** — Polished tour of security, organization, and platform capabilities.
+- **[Technical Core (How it Works)](docs/CORE.md)** — Deep technical dive into the encryption architecture, data flow, and security model.
 
 ---
 
@@ -215,7 +219,7 @@ cd zero_password_manager/server
 pip install -r requirements.txt
 
 # Configure environment
-cp env.example .env
+cp ../example.env .env
 ```
 
 Open `.env` and set the two required values:
@@ -242,7 +246,7 @@ API is live at `http://YOUR_SERVER_IP:3000` · Interactive docs at `/docs`
 
 ```bash
 cd ..                   # back to the project root
-cp env.example env.prod
+cp example.env env.prod
 ```
 
 Edit `env.prod`:

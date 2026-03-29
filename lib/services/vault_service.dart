@@ -62,17 +62,18 @@ class VaultService {
   Future<void> unlock(String password, String salt) async {
     _masterKey = await _crypto.deriveMasterKey(password, salt);
 
-    if (await BiometricService.isBiometricEnabled()) {
+    if (await BiometricService().isBiometricEnabled()) {
       final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
-      await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+      await BiometricService().storeBiometricSecret(base64.encode(keyBytes));
       // Wipe extracted bytes immediately after use
       keyBytes.fillRange(0, keyBytes.length, 0);
     }
   }
 
   Future<bool> tryUnlockWithBiometrics() async {
-    if (!await BiometricService.isBiometricEnabled()) return false;
-    final secretB64 = await BiometricService.authenticate();
+    final biometric = BiometricService();
+    if (!await biometric.isBiometricEnabled()) return false;
+    final secretB64 = await biometric.authenticate();
     if (secretB64 != null) {
       _masterKey = SecretKey(base64.decode(secretB64));
       return true;
@@ -162,9 +163,9 @@ class VaultService {
       _masterKey = SecretKey(base64.decode(decryptedB64));
       
       // Auto-repair biometric secret if enabled
-      if (await BiometricService.isBiometricEnabled()) {
+      if (await BiometricService().isBiometricEnabled()) {
         final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
-        await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+        await BiometricService().storeBiometricSecret(base64.encode(keyBytes));
         keyBytes.fillRange(0, keyBytes.length, 0);
       }
       
@@ -190,9 +191,9 @@ class VaultService {
       _masterKey = SecretKey(base64.decode(decryptedB64));
       
       // Auto-repair biometric secret if enabled
-      if (await BiometricService.isBiometricEnabled()) {
+      if (await BiometricService().isBiometricEnabled()) {
         final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
-        await BiometricService.storeBiometricSecret(base64.encode(keyBytes));
+        await BiometricService().storeBiometricSecret(base64.encode(keyBytes));
         keyBytes.fillRange(0, keyBytes.length, 0);
       }
       
@@ -222,7 +223,7 @@ class VaultService {
     await _storage.deleteAll();
 
     await _cache.clearCache();
-    await BiometricService.resetBiometricSettings();
+    await BiometricService().resetBiometricSettings();
   }
 
   // ── Password list — METADATA ONLY (no payload ever decrypted here) ───────────

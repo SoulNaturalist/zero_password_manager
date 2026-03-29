@@ -75,8 +75,9 @@ class HiddenFolderService with WidgetsBindingObserver {
   Future<Map<HiddenFolderAuthMethod, bool>> getAvailableMethods({
     required bool totpEnabled,
   }) async {
-    final biometricOk = await BiometricService.isAvailable() &&
-        await BiometricService.isBiometricEnabled();
+    final biometric = BiometricService();
+    final biometricOk = await biometric.isAvailable() &&
+        await biometric.isBiometricEnabled();
     final pinOk = await PinSecurity.hasPinHash();
     return {
       HiddenFolderAuthMethod.biometric: biometricOk,
@@ -167,7 +168,7 @@ class HiddenFolderService with WidgetsBindingObserver {
   Future<bool> _verifyBiometric() async {
     // BiometricService.authenticate returns String? (the stored secret).
     // Non-null means authentication passed.
-    final result = await BiometricService.authenticate(
+    final result = await BiometricService().authenticate(
       reason: 'Подтвердите для доступа к скрытым папкам',
     );
     return result != null;

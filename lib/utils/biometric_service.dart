@@ -18,7 +18,25 @@ class BiometricService {
   static const String _biometricKey = 'biometric_enabled';
   static const String _masterKeyStorageKey = 'biometric_master_key';
 
-  static final _auth = LocalAuthentication();
+  static final BiometricService _instance = BiometricService._();
+  factory BiometricService() => _instance;
+
+  BiometricService._() {
+    _initEnabledNotifier();
+  }
+
+  final ValueNotifier<bool> isEnabledNotifier = ValueNotifier<bool>(false);
+
+  Future<void> _initEnabledNotifier() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      isEnabledNotifier.value = (prefs.getBool(_biometricKey) ?? false) && await isAvailable();
+    } catch (_) {
+      isEnabledNotifier.value = false;
+    }
+  }
+
+  static const _auth = LocalAuthentication();
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
@@ -28,7 +46,7 @@ class BiometricService {
 
   /// Returns true if the device supports biometrics AND has at least one
   /// enrolled biometric (fingerprint / face).
-  static Future<bool> isAvailable() async {
+  Future<bool> isAvailable() async {
     try {
       final isSupported = await _auth.isDeviceSupported();
       if (!isSupported) return false;
@@ -42,7 +60,7 @@ class BiometricService {
   }
 
   /// Returns the list of enrolled biometric types for UI display.
-  static Future<List<BiometricType>> getAvailableBiometrics() async {
+  Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
       return await _auth.getAvailableBiometrics();
     } catch (_) {
@@ -52,14 +70,19 @@ class BiometricService {
 
   // ── Enabled flag ───────────────────────────────────────────────────────────
 
-  static Future<bool> isBiometricEnabled() async {
+  Future<bool> isBiometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_biometricKey) ?? false;
+    final enabled = prefs.getBool(_biometricKey) ?? false;
+    if (enabled != isEnabledNotifier.value) {
+      isEnabledNotifier.value = enabled;
+    }
+    return enabled;
   }
 
-  static Future<void> setBiometricEnabled(bool enabled) async {
+  Future<void> setBiometricEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_biometricKey, enabled);
+    isEnabledNotifier.value = enabled;
   }
 
   // ── Store master key (call after enabling biometrics) ──────────────────────
@@ -67,7 +90,7 @@ class BiometricService {
   /// Store [value] (base64-encoded master key) in hardware-backed secure storage.
   /// Does NOT require biometric auth to store — only to retrieve.
   /// Returns true on success.
-  static Future<bool> storeBiometricSecret(String value) async {
+  Future<bool> storeBiometricSecret(String value) async {
     try {
       await _storage.write(key: _masterKeyStorageKey, value: value);
       return true;
@@ -80,15 +103,15 @@ class BiometricService {
 
   /// Show biometric prompt. On success, retrieve and return the stored secret.
   /// Returns null if auth failed, was cancelled, or no secret is stored.
-  static Future<String?> authenticate({
+  Future<String?> authenticate({
     String reason = 'Подтвердите отпечаток пальца для входа',
   }) async {
     try {
       final didAuth = await _auth.authenticate(
         localizedReason: reason,
         options: const AuthenticationOptions(
-          biometricOnly: false,   // allow device PIN fallback
-          stickyAuth: true,       // don't cancel on app switch
+          biometricOnly: false, // allow device PIN fallback
+          stickyAuth: true, // don't cancel on app switch
           useErrorDialogs: true,
         ),
       );
@@ -104,9 +127,10 @@ class BiometricService {
 
   // ── Reset ──────────────────────────────────────────────────────────────────
 
-  static Future<void> resetBiometricSettings() async {
+  Future<void> resetBiometricSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_biometricKey);
+    isEnabledNotifier.value = false;
     try {
       await _storage.delete(key: _masterKeyStorageKey);
     } catch (_) {}
@@ -114,7 +138,7 @@ class BiometricService {
 
   // ── Diagnostic info (for debug/test screen) ────────────────────────────────
 
-  static Future<Map<String, dynamic>> getDiagnosticInfo() async {
+  Future<Map<String, dynamic>> getDiagnosticInfo() async {
     try {
       final isSupported = await _auth.isDeviceSupported();
       final canCheck = await _auth.canCheckBiometrics;
@@ -130,12 +154,9 @@ class BiometricService {
         'isDeviceSupported': isSupported,
         'totalAvailableMethods': available.length,
         'biometricDetails': {
-          if (available.contains(BiometricType.fingerprint))
-            'fingerprint': 'Отпечаток пальца',
-          if (available.contains(BiometricType.face))
-            'face': 'Распознавание лица',
-          if (available.contains(BiometricType.iris))
-            'iris': 'Сетчатка глаза',
+          if (available.contains(BiometricType.fingerprint)) 'fingerprint': 'Отпечаток пальца',
+          if (available.contains(BiometricType.face)) 'face': 'Распознавание лица',
+          if (available.contains(BiometricType.iris)) 'iris': 'Сетчатка глаза',
         },
         'availableBiometrics': available.map((b) => b.name).toList(),
       };
@@ -156,7 +177,7 @@ class BiometricService {
   }
 
   /// For test screen — verify biometric is working end-to-end.
-  static Future<bool> forceEnableBiometrics() async {
+  Future<bool> forceEnableBiometrics() async {
     final available = await isAvailable();
     if (!available) return false;
     final stored = await storeBiometricSecret('test_probe');

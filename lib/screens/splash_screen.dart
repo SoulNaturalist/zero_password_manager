@@ -75,7 +75,7 @@ class _SplashScreenState extends State<SplashScreen> {
       // Start WebSocket if we have a session
       WsService().init();
       
-      final biometricEnabled = await BiometricService.isBiometricEnabled();
+      final biometricEnabled = await BiometricService().isBiometricEnabled();
       
       if (hasPinHash || biometricEnabled) {
         // User has a local protector → go to PIN/Bio screen to unlock vault.

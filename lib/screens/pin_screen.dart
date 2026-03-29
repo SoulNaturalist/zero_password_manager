@@ -85,8 +85,9 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
   Future<void> _checkInitialState() async {
     await _checkLockout();
     final hasPin = await PinSecurity.hasPinHash();
-    final bioAvailable = await BiometricService.isAvailable();
-    final bioEnabled = await BiometricService.isBiometricEnabled();
+    final biometric = BiometricService();
+    final bioAvailable = await biometric.isAvailable();
+    final bioEnabled = await biometric.isBiometricEnabled();
 
     if (mounted) {
       setState(() {
