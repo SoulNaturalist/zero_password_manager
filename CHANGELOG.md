@@ -31,6 +31,7 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Fix bugs
 
 - Ws loop on client
+- Biometrics bugs
 
 
 ### 📖 Documentation
