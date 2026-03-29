@@ -16,9 +16,7 @@
 
     <!-- Security headers (Flutter Web compatible) -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://logo.clearbit.com; connect-src 'self'; frame-ancestors 'none';">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://logo.clearbit.com; connect-src 'self';">
 
     <title>Zero Vault | Absolute Privacy • Self-Hosted • No Cloud</title>
 
@@ -98,7 +96,18 @@
         .footer-content { opacity: 0.6; font-size: 0.95rem; }
         .footer-content p { margin-bottom: 8px; }
 
-        [data-lang] { display: none; }
+        /* Correct Language Switching via CSS */
+        [data-lang] { display: none !important; }
+        
+        html[lang="en"] [data-lang="en"] { display: block !important; }
+        html[lang="ru"] [data-lang="ru"] { display: block !important; }
+        
+        /* Specialized display for inline-level elements like badges */
+        html[lang="en"] .badge[data-lang="en"], 
+        html[lang="en"] span[data-lang="en"] { display: inline-flex !important; align-items: center; }
+        
+        html[lang="ru"] .badge[data-lang="ru"], 
+        html[lang="ru"] span[data-lang="ru"] { display: inline-flex !important; align-items: center; }
         
         @media (max-width:768px) { 
             h1 {font-size:3.2rem;} 
@@ -142,8 +151,8 @@
         </a>
         <div class="nav-controls">
             <div class="lang-switch">
-                <div onclick="switchLang('en')" id="lang-en" class="lang-btn active">EN</div>
-                <div onclick="switchLang('ru')" id="lang-ru" class="lang-btn">RU</div>
+                <div id="lang-en" class="lang-btn">EN</div>
+                <div id="lang-ru" class="lang-btn">RU</div>
             </div>
             <a href="https://github.com/SoulNaturalist/zero_password_manager" target="_blank" class="btn-github">
                 <span>GitHub</span>
@@ -264,41 +273,45 @@
 
     <footer>
         <div class="footer-content">
-            <p data-lang="en">&copy; 2026 Zero Vault. Developed by <strong>NK_TRIPLLE</strong> with Security first.</p>
-            <p data-lang="ru">&copy; 2026 Zero Vault. Разработано <strong>NK_TRIPLLE</strong> с приоритетом безопасности.</p>
-            <p style="margin-top: 1rem; font-size: 0.8rem;">Licensed under PolyForm Noncommercial License 1.0.0</p>
+            <div data-lang="en">
+                <p>&copy; 2026 Zero Vault. Developed by <strong>NK_TRIPLLE</strong> with Security first.</p>
+                <p style="margin-top: 0.5rem; color: var(--accent);">Built with 💙 for absolute privacy.</p>
+            </div>
+            <div data-lang="ru">
+                <p>&copy; 2026 Zero Vault. Разработано <strong>NK_TRIPLLE</strong>.</p>
+                <p style="margin-top: 0.5rem; color: var(--accent);">С любовью к безопасности 🔒</p>
+            </div>
+            <p style="margin-top: 1.5rem; font-size: 0.8rem; opacity: 0.5;">Licensed under PolyForm Noncommercial License 1.0.0</p>
         </div>
     </footer>
 
     <script>
         function switchLang(lang) {
-            document.querySelectorAll('[data-lang]').forEach(el => {
-                el.style.display = el.getAttribute('data-lang') === lang ? 'block' : 'none';
-                // If it was flex or grid, we might need more complex logic, 
-                // but here block/none works for our structure.
-                if (el.getAttribute('data-lang') === lang) {
-                    // Check if it's a block-level element or needs special display
-                    const tagName = el.tagName.toLowerCase();
-                    if (tagName === 'span' || tagName === 'div' && el.classList.contains('badge')) {
-                        el.style.display = 'inline-block';
-                    } else if (el.classList.contains('lang-btn')) {
-                         el.style.display = 'block';
-                    }
-                }
-            });
-            
-            document.getElementById('lang-en').classList.toggle('active', lang === 'en');
-            document.getElementById('lang-ru').classList.toggle('active', lang === 'ru');
+            // Update state
             document.documentElement.lang = lang;
-            
-            // Persist preference
             localStorage.setItem('zero_vault_lang', lang);
+
+            // Update UI buttons
+            document.querySelectorAll('.lang-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            const activeBtn = document.getElementById(`lang-${lang}`);
+            if (activeBtn) activeBtn.classList.add('active');
         }
 
-        window.onload = () => {
+        // Initialize and bind events
+        (function() {
+            // Event bindings (Avoid inline onclick to comply with strict CSP)
+            const btnEn = document.getElementById('lang-en');
+            const btnRu = document.getElementById('lang-ru');
+            
+            if (btnEn) btnEn.addEventListener('click', () => switchLang('en'));
+            if (btnRu) btnRu.addEventListener('click', () => switchLang('ru'));
+
+            // Initial load
             const savedLang = localStorage.getItem('zero_vault_lang') || 'en';
             switchLang(savedLang);
-        };
+        })();
     </script>
 </body>
 </html>
