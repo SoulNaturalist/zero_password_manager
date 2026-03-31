@@ -415,7 +415,7 @@ zero_password_manager/
 ## 🗺️ Roadmap
 
 **v0.3**
-- [ ] Docker Compose for one-command server deployment
+- [✔] Docker Compose for one-command server deployment
 - [ ] Browser extension (Chrome / Firefox)
 - [ ] Improved onboarding flow
 
