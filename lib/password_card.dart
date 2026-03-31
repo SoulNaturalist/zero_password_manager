@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'theme/colors.dart';
+import 'utils/memory_security.dart';
 
 class PasswordCard extends StatelessWidget {
   final String service;
@@ -51,7 +52,7 @@ class PasswordCard extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.copy, color: Colors.white70),
             onPressed: () {
-              // Clipboard logic
+              MemorySecurity.copyPassword(password);
             },
           ),
         ],

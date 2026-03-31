@@ -48,6 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hasSeedPhrase = false;
   bool _showHiddenFolders = false;
   HiddenFolderAuthMethod _hiddenFolderMethod = HiddenFolderAuthMethod.totp;
+  Duration _clipboardDelay = const Duration(seconds: 30);
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadProfile();
     _showHiddenFolders = HiddenFolderService.instance.isUnlocked;
     _loadHiddenFolderMethod();
+    _loadClipboardSettings();
   }
 
   Future<void> _loadDevices() async {
@@ -205,6 +207,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Метод: ${hiddenFolderMethodName(selected)}',
             ),
           ),
+        );
+      }
+    }
+  }
+
+    }
+  }
+  
+  Future<void> _loadClipboardSettings() async {
+    final delay = await MemorySecurity.getClipboardClearDelay();
+    if (mounted) setState(() => _clipboardDelay = delay);
+  }
+
+  Future<void> _changeClipboardDelay() async {
+    int current = _clipboardDelay.inSeconds;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const LText('Очистка буфера', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: StatefulBuilder(
+          builder: (ctx, setDlgState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const LText(
+                'Через сколько секунд очищать буфер обмена после копирования пароля?',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              LText(
+                '$current секунд',
+                style: TextStyle(
+                  color: AppColors.button,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Slider(
+                value: current.toDouble(),
+                min: 10,
+                max: 120,
+                divisions: 11,
+                activeColor: AppColors.button,
+                onChanged: (v) => setDlgState(() => current = v.round()),
+              ),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  LText('10с', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  LText('120с', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: LText('Отмена', style: TextStyle(color: AppColors.text.withOpacity(0.6))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, current),
+            child: const LText('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && selected != _clipboardDelay.inSeconds) {
+      await MemorySecurity.setClipboardClearDelay(selected);
+      setState(() => _clipboardDelay = Duration(seconds: selected));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(backgroundColor: Colors.green, content: LText('Настройка сохранена')),
         );
       }
     }
@@ -888,7 +965,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _forceEnableBiometrics() async {
     try {
-      final success = await BiometricService.forceEnableBiometrics();
+      final success = await BiometricService().forceEnableBiometrics();
 
       if (success) {
         setState(() {
@@ -931,7 +1008,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _resetBiometricSettings() async {
     try {
-      await BiometricService.resetBiometricSettings();
+      await BiometricService().resetBiometricSettings();
 
       setState(() {
         _biometricEnabled = false;
@@ -1322,20 +1399,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child: const LText('Установить'),
                             ),
                   ),
-
                   // Скрытие seed фраз
                   _buildSettingTile(
                     icon: Icons.visibility_off,
                     title: 'Скрыть записи с seed фразами',
-                    subtitle:
-                        _hideSeedPhrases
-                            ? 'Записи с seed фразами скрыты из списка'
-                            : 'Записи с seed фразами отображаются в списке',
+                    subtitle: _hideSeedPhrases
+                        ? 'Записи с seed фразами скрыты из списка'
+                        : 'Записи с seed фразами отображаются в списке',
                     trailing: Switch(
                       value: _hideSeedPhrases,
                       onChanged: _toggleSeedPhraseVisibility,
                       activeColor: AppColors.button,
                     ),
+                  ),
+
+                  // Очистка буфера обмена
+                  _buildSettingTile(
+                    icon: Icons.cleaning_services_outlined,
+                    title: 'Автоочистка буфера',
+                    subtitle: 'Очищать через ${_clipboardDelay.inSeconds} секунд',
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: _changeClipboardDelay,
                   ),
 
                   // Биометрическая аутентификация

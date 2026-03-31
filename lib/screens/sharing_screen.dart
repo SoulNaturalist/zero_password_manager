@@ -5,6 +5,7 @@ import '../widgets/themed_widgets.dart';
 import '../services/sharing_service.dart';
 import '../services/vault_service.dart';
 import '../l10n/l_text.dart';
+import '../utils/memory_security.dart';
 
 class SharingScreen extends StatefulWidget {
   /// Optional password entry from the vault list. When provided the share
@@ -369,7 +370,7 @@ class _SharingScreenState extends State<SharingScreen>
                       const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () {
-                          Clipboard.setData(ClipboardData(text: shareKey));
+                          MemorySecurity.copySensitiveData(shareKey, label: 'Ключ доступа');
                           setDlg(() => _keyCopied = true);
                           Future.delayed(const Duration(seconds: 2), () {
                             if (ctx.mounted) setDlg(() => _keyCopied = false);
@@ -565,7 +566,7 @@ class _SharingScreenState extends State<SharingScreen>
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () {
-                      Clipboard.setData(ClipboardData(text: plaintext));
+                      MemorySecurity.copySensitiveData(plaintext, label: 'Данные');
                       setDlg(() => _copied = true);
                       Future.delayed(const Duration(seconds: 2), () {
                         if (ctx.mounted) setDlg(() => _copied = false);

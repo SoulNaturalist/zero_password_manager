@@ -432,7 +432,7 @@ class _AddPasswordScreenState extends State<AddPasswordScreen>
                               size: 20,
                             ),
                             onPressed: () async {
-                              await Clipboard.setData(ClipboardData(text: passwordController.text));
+                              await MemorySecurity.copyPassword(passwordController.text);
                               setState(() => _copied = true);
                               Future.delayed(const Duration(seconds: 2), () {
                                 if (mounted) setState(() => _copied = false);

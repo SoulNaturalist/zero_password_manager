@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/emergency_service.dart';
 import '../services/vault_service.dart';
 import '../l10n/l_text.dart';
+import '../utils/memory_security.dart';
 
 class EmergencyScreen extends StatefulWidget {
   const EmergencyScreen({super.key});
@@ -194,9 +195,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                   IconButton(
                     icon: const Icon(Icons.copy),
                     onPressed: () {
-                      Clipboard.setData(ClipboardData(text: key));
-                      ScaffoldMessenger.of(ctx)
-                          .showSnackBar(const SnackBar(content: LText('Copied')));
+                      MemorySecurity.copySensitiveData(key, label: 'Экстренный ключ');
                     },
                   ),
                 ],

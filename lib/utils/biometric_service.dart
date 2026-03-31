@@ -1,6 +1,7 @@
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 /// Biometric authentication service.
 ///
@@ -36,8 +37,8 @@ class BiometricService {
     }
   }
 
-  static const _auth = LocalAuthentication();
-  static const _storage = FlutterSecureStorage(
+  static final _auth = LocalAuthentication();
+  static final _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
