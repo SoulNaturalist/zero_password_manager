@@ -9,6 +9,7 @@ A curated overview of what makes **Zero Password Manager** different from mainst
 ## Quick Navigation
 
 - [Privacy & Security Foundation](#privacy--security-foundation)
+- [Advanced Threat Mitigation & Memory Security](#advanced-threat-mitigation--memory-security)
 - [Vault Organization](#vault-organization)
 - [Authentication & Access Control](#authentication--access-control)
 - [Sharing, Recovery & Continuity](#sharing-recovery--continuity)
@@ -46,6 +47,31 @@ Review past changes to entries and keep an operational record of updates and del
 
 ### 👁️ Hidden folders with TOTP reveal
 Keep especially sensitive categories hidden until explicitly unlocked for the current session.
+
+---
+
+## Advanced Threat Mitigation & Memory Security
+
+### 🛡️ Advanced memory security & in-memory wiping
+Instead of relying on Dart's garbage collector, the client uses a custom `SecureBuffer` and native Kotlin hooks (`MethodChannel('secure_wipe')`) to aggressively overwrite sensitive strings with zero bytes in RAM immediately after use, mitigating memory-dump attacks.
+
+### 📋 Anti-clipboard leakage & auto-wipe
+Copied credentials schedule an automatic, secure clipboard wipe after a customizable timeout. On Android 13+, it explicitly invokes the OS `sensitive` flag so passwords do not hover prominently or get cached over the user's keyboard UI.
+
+### 🎲 Built-in CSPRNG password generation
+The app ships with a native Cryptographically Secure Pseudo-Random Number Generator (CSPRNG) that bounds password generation directly into a raw byte buffer `SecureBuffer` to prevent Dart string leakage in memory.
+
+### 📡 Real-time server migration via WebSockets
+A sophisticated Live WebSocket channel (`/ws/device-events`) allows the self-hosted backend to issue a `backend_change_request`. This triggers a secure Push Notification on the client, prompting the user to securely migrate clients to a new endpoint via a TOTP challenge.
+
+### 🚫 Automated brute-force & IP banning
+The backend natively tracks failed authentication and OTP attempts, automatically locking targeted accounts temporarily and actively blacklisting abusive scanner IPs (`ip_blocks`) directly at the database level.
+
+### ⏱️ Atomic replay-attack prevention for TOTPs
+Database constraints explicitly neutralize race conditions (`UsedOTP`, `UsedMFAToken`). Parallel attacker requests intercepting the same TOTP token are atomically rejected by unique-constrained tables.
+
+### 🔌 Granular session revocation & device binding
+Refresh tokens are strictly tethered to a persistent `device_id`, granting users the ability to surgically revoke access on a specific stolen phone/laptop. A `token_version` kill-switch also instantly invalidates all sessions globally.
 
 ---
 
