@@ -258,10 +258,14 @@ class RotationDueItem(BaseModel):
 # ── Secure Sharing Schemas ────────────────────────────────────────────────────
 
 class ShareCreate(BaseModel):
-    recipient_login: str
-    encrypted_payload: str              # re-encrypted for recipient by client
+    # Bounded string lengths prevent storage-exhaustion (CWE-400) and keep
+    # the index on recipient_login small. The payload cap is enforced in the
+    # handler against MAX_PAYLOAD_SIZE, but we also set a Pydantic-level cap
+    # as defense in depth so malformed clients are rejected early.
+    recipient_login: str = Field(..., min_length=1, max_length=64)
+    encrypted_payload: str = Field(..., min_length=1, max_length=4_000_000)
     encrypted_metadata: Optional[Dict[str, Any]] = None
-    label: Optional[str] = None
+    label: Optional[str] = Field(default=None, max_length=200)
     expires_in_days: Optional[int] = None
 
 
