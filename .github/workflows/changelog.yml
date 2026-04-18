@@ -41,10 +41,18 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
-        uses: orhun/git-cliff-action@v3
-        with:
-          config: cliff.toml
-          args: --output CHANGELOG.md
+        run: |
+          set -euo pipefail
+          VERSION="2.6.1"
+          ARCHIVE="git-cliff-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -sSLf -o "${ARCHIVE}" \
+            "https://github.com/orhun/git-cliff/releases/download/v${VERSION}/${ARCHIVE}"
+          tar -xzf "${ARCHIVE}"
+          sudo install -m 0755 "git-cliff-${VERSION}/git-cliff" /usr/local/bin/git-cliff
+          git cliff --version
+
+      - name: Regenerate CHANGELOG.md
+        run: git cliff --config cliff.toml --output CHANGELOG.md
 
       - name: Commit updated changelog
         run: |
