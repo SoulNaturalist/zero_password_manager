@@ -872,7 +872,9 @@ def health():
 # ── Password Sharing ──────────────────────────────────────────────────────────
 
 @app.post("/sharing", response_model=schemas.ShareResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def create_share(
+    request: Request,
     share: schemas.ShareCreate,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
@@ -889,6 +891,12 @@ async def create_share(
         raise HTTPException(status_code=404, detail="Recipient not found")
     if recipient.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot share with yourself")
+
+    # Reject oversized blobs — caps parity with POST /passwords. Without this
+    # any authenticated user could spam arbitrarily large ciphertexts into the
+    # shares table (CWE-400 resource exhaustion).
+    if len(share.encrypted_payload) > MAX_PAYLOAD_SIZE:
+        raise HTTPException(status_code=400, detail="Payload too large")
 
     # Check expiry
     expires_at = None
@@ -945,6 +953,21 @@ async def list_incoming_shares(
     return shares
 
 
+def _share_expired(share: "models.PasswordShare") -> bool:
+    """Return True if the share has an expiry in the past.
+
+    Normalises naive datetimes (SQLite strips ``tzinfo`` even when the column
+    is declared with ``timezone=True``) to UTC so the comparison never raises
+    ``can't compare offset-naive and offset-aware datetimes``.
+    """
+    expires_at = share.expires_at
+    if expires_at is None:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at < datetime.now(timezone.utc)
+
+
 @app.get("/sharing/{share_id}", response_model=schemas.ShareDetailResponse)
 async def get_share(
     share_id: int,
@@ -959,7 +982,7 @@ async def get_share(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Enforce expiry
-    if share.expires_at and share.expires_at < datetime.now(timezone.utc):
+    if _share_expired(share):
         share.status = "expired"
         db.commit()
         raise HTTPException(status_code=410, detail="Share has expired")
@@ -982,7 +1005,7 @@ async def accept_share(
         raise HTTPException(status_code=403, detail="Access denied")
     if share.status != "pending":
         raise HTTPException(status_code=400, detail=f"Share is already {share.status}")
-    if share.expires_at and share.expires_at < datetime.now(timezone.utc):
+    if _share_expired(share):
         raise HTTPException(status_code=410, detail="Share has expired")
 
     share.status = "accepted"
