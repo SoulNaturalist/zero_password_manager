@@ -142,6 +142,26 @@ class MemorySecurity {
     }
   }
 
+  /// Synchronously clears the system clipboard. Safe to call from anywhere,
+  /// including lifecycle observers when the app goes to background.
+  ///
+  /// On Android, delegates to a native clipboard.clearPrimaryClip() so the
+  /// clear happens even if the Dart isolate is about to be frozen.
+  static Future<void> forceClearClipboard() async {
+    // Dart-side first (works on all platforms, including web/desktop).
+    try {
+      await Clipboard.setData(const ClipboardData(text: ''));
+    } catch (_) {}
+
+    if (!Platform.isAndroid) return;
+    const channel = MethodChannel('com.zerovault/clipboard');
+    try {
+      await channel.invokeMethod('clearClipboard');
+    } catch (e) {
+      debugPrint('Native clipboard clear failed: $e');
+    }
+  }
+
   /// Показывает уведомление пользователю (Security Snackbar)
   static void _showSecureCopyNotification(String label, Duration delay) {
     final context = navigatorKey.currentContext;
@@ -169,7 +189,12 @@ class MemorySecurity {
     );
   }
 
-  /// Планирует безопасную очистку буфера обмена (с проверкой хеша)
+  /// Планирует безопасную очистку буфера обмена (с проверкой хеша).
+  ///
+  /// NOTE: this timer is a best-effort safety net — if the app is backgrounded
+  /// or the isolate is paused, the delayed callback may never fire. The
+  /// lifecycle observer in [PasswordManagerApp] handles that case by calling
+  /// [forceClearClipboard] on AppLifecycleState.paused.
   static void _scheduleSecureClipboardClear(String originalHash, Duration delay) {
     Future.delayed(delay, () async {
       try {
@@ -182,7 +207,7 @@ class MemorySecurity {
 
         // Очищаем только если это наш контент
         if (currentHash == originalHash) {
-          await Clipboard.setData(const ClipboardData(text: ''));
+          await forceClearClipboard();
           debugPrint('Clipboard securely cleared after ${delay.inSeconds}s');
         }
       } catch (e) {

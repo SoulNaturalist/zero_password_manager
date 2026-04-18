@@ -20,9 +20,11 @@ import 'screens/telegram_binding_screen.dart';
 import 'screens/reset_password_screen.dart';
 import 'theme/colors.dart';
 import 'utils/config_test.dart';
+import 'utils/memory_security.dart';
 import 'services/cache_service.dart';
 import 'services/language_service.dart';
 import 'services/ws_service.dart';
+import 'services/vault_service.dart';
 import 'config/app_config.dart';
 
 void main() async {
@@ -73,7 +75,40 @@ class PasswordManagerApp extends StatefulWidget {
   State<PasswordManagerApp> createState() => _PasswordManagerAppState();
 }
 
-class _PasswordManagerAppState extends State<PasswordManagerApp> {
+class _PasswordManagerAppState extends State<PasswordManagerApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// CWE-316 / CWE-312 — clear the clipboard and lock the vault whenever the
+  /// app leaves the foreground. The Dart Future.delayed timer used by
+  /// MemorySecurity.copySensitiveData dies as soon as the isolate is paused,
+  /// so without this hook a copied password would linger in the system
+  /// clipboard until another app overwrites it — potentially forever.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      // Fire-and-forget: the isolate may be suspended imminently, so we want
+      // the synchronous native clear to run before we lose CPU time.
+      MemorySecurity.forceClearClipboard();
+      // Lock the in-memory master key so a post-resume attacker without
+      // biometrics/PIN can't read the vault.
+      VaultService().lock();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(

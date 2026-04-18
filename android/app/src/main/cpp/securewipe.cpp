@@ -17,14 +17,23 @@ static void secure_zero(void* ptr, size_t len) {
 
 // ---------------------------------------------------------------------------
 // nativeWipeBytes — zeroes a Java byte[] via JNI.
-// We pin the array, fill it with zeros, then release with mode JNI_COMMIT
-// to write the changes back into the JVM heap before freeing the pointer.
+//
+// Kotlin `object WipeString` with `@JvmStatic external fun` compiles to a
+// static JNI method, so the second parameter is jclass (not jobject).
+//
+// GetByteArrayElements may return either a direct pointer into the JVM heap
+// (isCopy == JNI_FALSE) or a pointer to a newly-allocated copy
+// (isCopy == JNI_TRUE). Releasing with mode 0 guarantees the copy is written
+// back AND the buffer is freed, so in both cases the JVM-visible heap array
+// ends up zeroed. The transient C-heap copy (if any) is not ours to manage,
+// but the JVM frees it on Release, and our zeros are the last thing written
+// to it.
 // ---------------------------------------------------------------------------
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_nk3_1zero_WipeString_nativeWipeBytes(
         JNIEnv* env,
-        jobject /* thiz */,
+        jclass /* clazz */,
         jbyteArray bytes) {
     if (bytes == nullptr) return;
 
@@ -37,7 +46,8 @@ Java_com_example_nk3_1zero_WipeString_nativeWipeBytes(
 
     secure_zero(ptr, static_cast<size_t>(len));
 
-    // 0  = copy back AND free the buffer (ensures JVM heap is updated)
+    // 0 = copy back AND free the buffer (ensures JVM heap is updated even
+    // when the runtime returned a copy).
     env->ReleaseByteArrayElements(bytes, ptr, 0);
 }
 
@@ -48,7 +58,7 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_nk3_1zero_WipeString_nativeWipeCharArray(
         JNIEnv* env,
-        jobject /* thiz */,
+        jclass /* clazz */,
         jcharArray chars) {
     if (chars == nullptr) return;
 
