@@ -8,11 +8,28 @@ on:
       - develop
       - 'feature/**'
       - 'fix/**'
+      - 'claude/**'
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Test-only credentials. These are intentionally weak, deterministic values
+# — never used outside CI and matched by server/tests/conftest.py. They exist
+# at the workflow level so any test script (not just pytest) that imports
+# server.config still boots without tripping the mandatory-env check.
+env:
+  DATABASE_URL: "sqlite:///:memory:"
+  JWT_SECRET_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  SEED_PHRASE_KEY: "c3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3M="
+  TOTP_MASTER_KEY: "dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ="
+  DEVICE_SECRET: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  PERMISSIONS_OTP_LIST: ""
 
 jobs:
   security-tests:

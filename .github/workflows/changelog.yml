@@ -1,26 +1,37 @@
 name: Update Changelog
 
-# Runs on every push to main (not tags — releases handle their own changelog).
-# Generates an "Unreleased" section from commits since the last tag and
-# prepends it to CHANGELOG.md so the file is always up-to-date.
+# Regenerates CHANGELOG.md from the full git history using git-cliff.
+#
+# Runs only on pushes to main that touched non-doc source files.  The
+# concurrency group cancels any in-flight run so two fast pushes can never
+# produce racing commits (which was the main source of duplicate lines).
+# The bot commit itself is skipped via both `paths-ignore` (all markdown) and
+# the `[skip ci]` marker in the commit message — belt-and-braces.
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths-ignore:
-      - CHANGELOG.md
-      - pubspec.yaml
-      - '**.md'
+      - '**/*.md'
+      - 'pubspec.yaml'
       - '.gitignore'
+      - '.github/workflows/changelog.yml'
+      - 'cliff.toml'
 
 permissions:
   contents: write
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   changelog:
     name: Regenerate CHANGELOG.md
     runs-on: ubuntu-latest
+    # Skip bot loops: the bot commit carries "[skip ci]" but some tooling still
+    # routes it through Actions, so we gate the job on the author as well.
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && github.event.head_commit.author.name != 'github-actions[bot]'"
 
     steps:
       - name: Checkout repository
@@ -30,24 +41,26 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
-        run: |
-          VERSION="2.4.0"
-          ARCHIVE="git-cliff-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          wget -q "https://github.com/orhun/git-cliff/releases/download/v${VERSION}/${ARCHIVE}"
-          tar -xzf "${ARCHIVE}"
-          sudo mv "git-cliff-${VERSION}/git-cliff" /usr/local/bin/git-cliff
-          git cliff --version
-
-      - name: Regenerate full CHANGELOG.md
-        run: |
-          # Generate the full changelog (all tags + unreleased commits)
-          git cliff --config cliff.toml --output CHANGELOG.md
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --output CHANGELOG.md
 
       - name: Commit updated changelog
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "No changelog changes to commit."
+            exit 0
+          fi
+
           git add CHANGELOG.md
-          # Exit 0 if nothing changed (no new commits to document)
-          git commit -m "chore: update CHANGELOG.md [skip ci]" || exit 0
-          git push
+          git commit -m "docs(changelog): regenerate [skip ci]"
+
+          # Rebase onto the latest main in case another push landed meanwhile —
+          # guards against the duplicate-commit race that a plain push causes.
+          git pull --rebase origin main
+          git push origin HEAD:main
