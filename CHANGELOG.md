@@ -33,11 +33,14 @@ All notable changes to **Zero Password Manager** are documented in this file.Ver
 - Ws loop on client
 - Biometrics bugs
 - Landing localization
+- **`auth`** — Enforce token_version on WebSocket and password change
 
 
 ### 📖 Documentation
 
 - Add English feature guide
+- Update FEATURES.md [skip ci]
+- Remove duplicate FEATURES.md [skip ci]
 
 
 ### 🔒 Security
