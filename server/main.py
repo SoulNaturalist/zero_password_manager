@@ -174,20 +174,25 @@ manager = ConnectionManager()
 @app.websocket("/ws/device-events")
 async def websocket_device_events(websocket: WebSocket, token: Optional[str] = None):
     client_host = websocket.client.host if websocket.client else "unknown"
+    db: Optional[Session] = None
     try:
-        # Authentication
         auth_header = websocket.headers.get("authorization")
         if (token is None or not token) and auth_header and auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
-        
+
         if not token:
             logger.warning(f"WS: Rejecting connection from {client_host} - No token")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        payload = auth_service.decode_token(token)
-        user_id = int(payload.get("sub"))
-        
+        # Full JWT validation parity with HTTP: signature, expiry, jti blacklist,
+        # user existence, and token_version. Without token_version enforcement a
+        # stolen/revoked token would retain WebSocket access after logout or
+        # password reset.
+        db = next(get_db())
+        user = auth_deps._resolve_user_from_token(token, db)
+        user_id = user.id
+
     except Exception as e:
         logger.warning(f"WS: Auth failed for {client_host}: {str(e)}")
         try:
@@ -195,6 +200,12 @@ async def websocket_device_events(websocket: WebSocket, token: Optional[str] = N
         except:
             pass
         return
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
 
     await manager.connect(websocket, user_id)
     try:
@@ -247,7 +258,14 @@ def update_profile(request: Request,
                 detail="Password too weak. Minimum 14 characters, including uppercase, lowercase, digits, and special symbols."
             )
         current_user.hashed_password = auth_service.hash_password(user_update.password)
-        
+        # A password change must invalidate every outstanding session — otherwise
+        # an attacker who captured the old access/refresh token keeps full
+        # access (including the live WebSocket). Mirror the password-reset flow.
+        current_user.token_version += 1
+        db.query(models.RefreshToken).filter(
+            models.RefreshToken.user_id == current_user.id
+        ).update({"revoked": True})
+
     db.commit()
     db.refresh(current_user)
     crud.audit_event(db, current_user.id, "profile_updated", background_tasks=background_tasks)
