@@ -591,6 +591,38 @@ async def refresh_token(
         constant_time_response(start_time)
 
 
+@router.post("/logout")
+@limiter.limit("10/minute")
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Invalidate every outstanding session for the caller.
+
+    Bumps ``token_version`` so all previously issued access tokens fail the
+    HTTP and WebSocket token_version check on the very next request, and
+    revokes every refresh token belonging to the user. This is the explicit
+    counterpart to the password-reset flow — a user who chooses "log out"
+    should not keep a live WebSocket or be able to refresh a fresh access
+    token afterwards.
+    """
+    ip_address = get_client_ip(request)
+
+    current_user.token_version += 1
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.revoked == False,  # noqa: E712 — SQLAlchemy requires `==`
+    ).update({"revoked": True})
+    db.commit()
+
+    log_security_event(
+        db, current_user.id, "logout",
+        {"ip": ip_address}, ip_address,
+    )
+    return {"success": True}
+
+
 @router.post("/reset-password")
 @limiter.limit("5/10minutes")
 async def reset_password(

@@ -246,3 +246,61 @@ class TestTokenRefresh:
     def test_invalid_refresh_token_rejected(self, client):
         r = client.post("/refresh", json={"refresh_token": "fake.token"})
         assert r.status_code in (401, 422)
+
+
+@pytest.mark.security
+class TestLogout:
+    """Regression tests for the explicit logout flow.
+
+    Covers the CVE where a WebSocket/HTTP access token stayed valid after
+    the user logged out. After /logout:
+      - the old access token MUST fail token_version check on any endpoint,
+      - every outstanding refresh token MUST be revoked.
+    """
+
+    def test_logout_invalidates_current_access_token(self, client, db_session):
+        _register(client)
+        user = _get_user(db_session)
+        token = _make_token_for(user, db_session)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Baseline: the token works.
+        assert client.get("/profile", headers=headers).status_code == 200
+
+        # Logout bumps token_version.
+        logout = client.post("/logout", headers=headers)
+        assert logout.status_code == 200
+        assert logout.json() == {"success": True}
+
+        # The same token must now be rejected.
+        assert client.get("/profile", headers=headers).status_code == 401
+
+    def test_logout_revokes_all_refresh_tokens(self, client, db_session):
+        from server.auth.service import create_refresh_token
+        from server.models import RefreshToken
+
+        _register(client)
+        user = _get_user(db_session)
+        create_refresh_token(db_session, user.id, "device-a")
+        create_refresh_token(db_session, user.id, "device-b")
+        db_session.commit()
+
+        active = db_session.query(RefreshToken).filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked == False,  # noqa: E712
+        ).count()
+        assert active == 2
+
+        token = _make_token_for(user, db_session)
+        r = client.post("/logout", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+
+        db_session.expire_all()
+        active = db_session.query(RefreshToken).filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked == False,  # noqa: E712
+        ).count()
+        assert active == 0
+
+    def test_logout_requires_auth(self, client):
+        assert client.post("/logout").status_code == 401

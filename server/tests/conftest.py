@@ -2,11 +2,22 @@
 Test fixtures.
 
 env vars must be set BEFORE any server module is imported because
-config.py evaluates os.getenv() at class-definition time (module level).
+``config.py`` evaluates ``os.getenv()`` at class-definition time.
+
+Engine wiring note:
+  ``crud.py`` and ``middleware.py`` bind ``SessionLocal`` at import time via
+  ``from .database import SessionLocal`` — those names are local references,
+  so reassigning ``server.database.SessionLocal`` AFTER those modules load
+  would be silently ignored (middleware would keep the production session
+  and hit an empty database, producing the ``no such table: ip_blocks``
+  failure). We therefore swap the engine on ``server.database`` FIRST, and
+  only then import ``server.main`` so every downstream module picks up the
+  in-memory, shared-pool test engine.
 """
 import base64
 import os
 
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET_KEY", "a" * 64)
 os.environ.setdefault("SEED_PHRASE_KEY", base64.b64encode(b"s" * 32).decode())
 os.environ.setdefault("TOTP_MASTER_KEY", base64.b64encode(b"t" * 32).decode())
@@ -19,21 +30,25 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
 from sqlalchemy.pool import StaticPool
 
-from server.database import Base, get_db
-from server.main import app
-
-# StaticPool ensures all SQLAlchemy operations share the SAME underlying
-# connection, which is required for in-memory SQLite (each new connection
-# would otherwise get an independent, empty database).
+# StaticPool ensures every SQLAlchemy connection shares the same underlying
+# sqlite :memory: DB — otherwise each checkout gets its own empty database.
 _ENGINE = create_engine(
     "sqlite:///:memory:",
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
 _Session = sessionmaker(autocommit=False, autoflush=False, bind=_ENGINE)
+
+# Rewire server.database BEFORE importing main / crud / middleware.
+import server.database as _db  # noqa: E402
+_db.engine.dispose()
+_db.engine = _ENGINE
+_db.SessionLocal = _Session
+
+from server.database import Base, get_db  # noqa: E402
+from server.main import app  # noqa: E402
 
 
 @pytest.fixture()
