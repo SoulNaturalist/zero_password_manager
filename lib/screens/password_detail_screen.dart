@@ -32,6 +32,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
   String? _encryptedPayload;
   String? _encryptedNotes;
   String? _encryptedMetadata;
+  String? _siteHash;  // for v2 AAD binding on decrypt
 
   String _pwdDisplay = '';
   String _notesDisplay = '';
@@ -67,6 +68,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
       _encryptedPayload = full['encrypted_payload'] as String?;
       _encryptedNotes = full['notes_encrypted'] as String?;
       _encryptedMetadata = full['encrypted_metadata'] as String?;
+      _siteHash = full['site_hash'] as String?;
     } catch (e) {
       _errorMsg = 'Ошибка расшифровки: $e';
     } finally {
@@ -93,7 +95,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
   Future<void> _copyPassword() async {
     if (_encryptedPayload == null || _encryptedPayload!.isEmpty) return;
 
-    final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!);
+    final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!, siteHash: _siteHash);
     try {
       await copySecureBuffer(passwordBuf);
     } finally {
@@ -121,7 +123,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     if (_encryptedPayload == null || _encryptedPayload!.isEmpty) return;
 
     try {
-      final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!);
+      final passwordBuf = await VaultService().decryptPayloadSecure(_encryptedPayload!, siteHash: _siteHash);
       final bytes = passwordBuf.getBytesCopy();
       final display = String.fromCharCodes(bytes);
       bytes.fillRange(0, bytes.length, 0);
@@ -157,7 +159,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     if (_encryptedNotes == null || _encryptedNotes!.isEmpty) return;
 
     try {
-      final notesBuf = await VaultService().decryptPayloadSecure(_encryptedNotes!);
+      final notesBuf = await VaultService().decryptNotesSecure(_encryptedNotes!, siteHash: _siteHash);
       final bytes = notesBuf.getBytesCopy();
       final display = String.fromCharCodes(bytes);
       bytes.fillRange(0, bytes.length, 0);
@@ -194,7 +196,7 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
 
     try {
       final seedBuf =
-          await VaultService().decryptSeedPhraseFromMetadataSecure(_encryptedMetadata!);
+          await VaultService().decryptSeedPhraseFromMetadataSecure(_encryptedMetadata!, siteHash: _siteHash);
       if (seedBuf == null) return;
 
       final bytes = seedBuf.getBytesCopy();
