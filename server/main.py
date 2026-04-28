@@ -40,7 +40,7 @@ from .auth.service import verify_hardened_otp
 from .config import settings
 from .database import engine, get_db
 import logging
-from .utils import get_favicon_url, EncryptionService
+from .utils import get_favicon_url
 from .auth.dependencies import get_current_user, get_seed_access_user
 from .middleware import SecurityMiddleware, ProxyHeadersMiddleware
 
@@ -279,23 +279,35 @@ def get_seed_phrase(
     current_user: models.User = Depends(get_seed_access_user),
     db: Session = Depends(get_db)
 ):
-    """Retrieve the client-encrypted seed phrase blob. Requires short-lived token."""
+    """Retrieve the client-encrypted seed phrase blob. Requires short-lived token.
+
+    Zero-knowledge contract: the server stores only the client-side ciphertext.
+    Legacy server-encrypted blobs (pre-zero-knowledge migration) are NOT
+    returned in plaintext anymore — instead we return 409 with a re-enrollment
+    hint, forcing the user to set the seed phrase again from a current client.
+    Returning legacy plaintext via this endpoint would defeat the very
+    "malicious backend" defence we are building.
+    """
     if not current_user.seed_phrase_encrypted:
         raise HTTPException(status_code=404, detail="Seed phrase not set")
 
-    # Access Log
     crud.audit_event(db, current_user.id, "seed_phrase_viewed")
-    
-    # Update last viewed
     current_user.seed_phrase_last_viewed_at = datetime.now(timezone.utc)
     db.commit()
-    
+
     stored_value = current_user.seed_phrase_encrypted
     if stored_value.startswith("client:"):
         return {"seed_phrase_encrypted": stored_value.removeprefix("client:")}
 
-    legacy_plaintext = EncryptionService.decrypt(stored_value)
-    return {"seed_phrase": legacy_plaintext}
+    # Legacy server-encrypted blob — refuse to leak plaintext through the API.
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "legacy_seed_phrase_format: this account has a pre-zero-knowledge "
+            "seed phrase that the server can decrypt. Please re-set the seed "
+            "phrase from a current client to migrate to client-side encryption."
+        ),
+    )
 
 
 @app.post("/profile/seed-phrase")
@@ -306,25 +318,42 @@ def set_seed_phrase(
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Set or rotate the seed phrase. Rotation requires multi-factor proof."""
+    """Set or rotate the seed phrase (zero-knowledge: client-side AES-GCM only).
+
+    Security contract:
+      * The server NEVER receives a plaintext seed phrase. Period.
+      * The legacy `seed_phrase` field is rejected outright; old clients must
+        upgrade. This closes the key-escrow / recovery-bypass class of attacks
+        documented in the 2026 ETH Zurich research on password-manager
+        backends — once the server holds a key that can decrypt user secrets,
+        a single backend compromise unwraps every vault.
+    """
     encrypted_phrase = body.get("seed_phrase_encrypted")
-    new_phrase = body.get("seed_phrase")
-    if not encrypted_phrase and not new_phrase:
+
+    if "seed_phrase" in body and not encrypted_phrase:
+        # Plaintext path is permanently disabled.
+        crud.audit_event(
+            db, current_user.id, "seed_phrase_plaintext_rejected",
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "plaintext_seed_phrase_disallowed: encrypt the seed phrase "
+                "client-side and submit it as 'seed_phrase_encrypted'."
+            ),
+        )
+
+    if not encrypted_phrase:
         raise HTTPException(status_code=400, detail="Seed phrase required")
 
-    # If it's a rotation, we should ideally verify old phrase or password
-    # For now, let's enforce TOTP at least
+    # Rotation requires step-up MFA when 2FA is enabled.
     if current_user.totp_enabled:
         otp = request.headers.get("X-OTP")
         verify_hardened_otp(db, current_user, otp)
 
-    # Encrypt with Server Key
-    if encrypted_phrase:
-        current_user.seed_phrase_encrypted = f"client:{encrypted_phrase}"
-    else:
-        current_user.seed_phrase_encrypted = EncryptionService.encrypt(new_phrase)
+    current_user.seed_phrase_encrypted = f"client:{encrypted_phrase}"
     db.commit()
-    
+
     crud.audit_event(db, current_user.id, "seed_phrase_updated")
     return {"success": True}
 

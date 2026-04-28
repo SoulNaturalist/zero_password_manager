@@ -104,15 +104,22 @@ class _EditPasswordScreenState extends State<EditPasswordScreen> {
       final encPayload = widget.password['encrypted_payload'] as String?;
       final encNotes   = widget.password['notes_encrypted']   as String?;
       final encMeta    = widget.password['encrypted_metadata'] as String?;
+      final siteHash   = widget.password['site_hash'] as String?;
 
       if (encPayload != null) {
-        passwordController.text = await VaultService().decryptPayload(encPayload);
+        passwordController.text =
+            await VaultService().decryptPayload(encPayload, siteHash: siteHash);
       }
       if (encNotes != null) {
-        notesController.text = await VaultService().decryptPayload(encNotes);
+        // Notes use the 'notes:<siteHash>' AAD context, not the payload one.
+        final buf = await VaultService().decryptNotesSecure(encNotes, siteHash: siteHash);
+        final bytes = buf.getBytesCopy();
+        notesController.text = String.fromCharCodes(bytes);
+        bytes.fillRange(0, bytes.length, 0);
+        buf.wipe();
       }
       final decryptedSeed =
-          await VaultService().decryptSeedPhraseFromMetadata(encMeta);
+          await VaultService().decryptSeedPhraseFromMetadata(encMeta, siteHash: siteHash);
       if (decryptedSeed != null) {
         seedPhraseController.text = decryptedSeed;
         unawaited(nativeWipe(decryptedSeed));

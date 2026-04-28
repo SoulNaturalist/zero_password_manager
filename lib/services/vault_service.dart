@@ -319,13 +319,35 @@ class VaultService {
     );
   }
 
+  // ── Per-record AAD binding helpers ───────────────────────────────────────────
+  //
+  // The site_hash is HMAC-SHA256(masterKey, lower(url)) — the server cannot
+  // forge it. Threading it through AAD makes a server-side row-swap fail GCM
+  // authentication. For legacy v1 ciphertexts the context is silently ignored
+  // (CryptoService.decrypt routes by the `v2:` prefix).
+
+  static String _payloadCtx(String siteHash) => 'payload:$siteHash';
+  static String _metaCtx(String siteHash)    => 'meta:$siteHash';
+  static String _notesCtx(String siteHash)   => 'notes:$siteHash';
+
   // ── Payload decryption (on-demand only) ──────────────────────────────────────
 
   /// Decrypts a payload into a [SecureBuffer].
   /// **Caller MUST call [SecureBuffer.wipe] when done with the data.**
-  Future<SecureBuffer> decryptPayloadSecure(String encryptedB64) async {
+  ///
+  /// [siteHash] — pass the row's site_hash for v2 ciphertexts. v1 (legacy)
+  /// ignores it. Omitting it for a v2 blob throws by design — we refuse to
+  /// silently drop the row-binding check.
+  Future<SecureBuffer> decryptPayloadSecure(
+    String encryptedB64, {
+    String? siteHash,
+  }) async {
     if (_masterKey == null) throw Exception('Vault is locked');
-    final plaintextBytes = await _crypto.decryptToBytes(_masterKey!, encryptedB64);
+    final plaintextBytes = await _crypto.decryptToBytes(
+      _masterKey!,
+      encryptedB64,
+      context: siteHash != null ? _payloadCtx(siteHash) : null,
+    );
     try {
       return SecureBuffer.fromBytes(plaintextBytes);
     } finally {
@@ -334,9 +356,34 @@ class VaultService {
   }
 
   /// Decrypts a payload to a plain String (use only for edit/save — not display).
-  Future<String> decryptPayload(String encryptedB64) async {
+  Future<String> decryptPayload(
+    String encryptedB64, {
+    String? siteHash,
+  }) async {
     if (_masterKey == null) throw Exception('Vault is locked');
-    return await _crypto.decrypt(_masterKey!, encryptedB64);
+    return await _crypto.decrypt(
+      _masterKey!,
+      encryptedB64,
+      context: siteHash != null ? _payloadCtx(siteHash) : null,
+    );
+  }
+
+  /// Notes-specific decryption. Same v1/v2 rules as [decryptPayload].
+  Future<SecureBuffer> decryptNotesSecure(
+    String encryptedB64, {
+    String? siteHash,
+  }) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+    final bytes = await _crypto.decryptToBytes(
+      _masterKey!,
+      encryptedB64,
+      context: siteHash != null ? _notesCtx(siteHash) : null,
+    );
+    try {
+      return SecureBuffer.fromBytes(bytes);
+    } finally {
+      bytes.fillRange(0, bytes.length, 0);
+    }
   }
 
   // ── Write operations ─────────────────────────────────────────────────────────
@@ -363,9 +410,16 @@ class VaultService {
         login: login,
         seedPhrase: normalizedSeed,
       ),
+      context: _metaCtx(siteHash),
     );
-    final encPayload    = await _crypto.encrypt(_masterKey!, password);
-    final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
+    final encPayload    = await _crypto.encryptBound(
+      _masterKey!,
+      password,
+      _payloadCtx(siteHash),
+    );
+    final encNotes      = notes != null
+        ? await _crypto.encryptBound(_masterKey!, notes, _notesCtx(siteHash))
+        : null;
 
     final response = await ApiService.post(AppConfig.passwordsUrl, body: {
       'site_hash':              siteHash,
@@ -406,9 +460,16 @@ class VaultService {
         login: login,
         seedPhrase: normalizedSeed,
       ),
+      context: _metaCtx(siteHash),
     );
-    final encPayload    = await _crypto.encrypt(_masterKey!, password);
-    final encNotes      = notes       != null ? await _crypto.encrypt(_masterKey!, notes)       : null;
+    final encPayload    = await _crypto.encryptBound(
+      _masterKey!,
+      password,
+      _payloadCtx(siteHash),
+    );
+    final encNotes      = notes != null
+        ? await _crypto.encryptBound(_masterKey!, notes, _notesCtx(siteHash))
+        : null;
 
     final response = await ApiService.put('${AppConfig.passwordsUrl}/$id', body: {
       'site_hash':              siteHash,
@@ -435,14 +496,20 @@ class VaultService {
       final login = entry['username'] ?? '';
       final pwd   = entry['password'] ?? '';
       final name  = url.isNotEmpty ? url : (login.isNotEmpty ? login : 'Imported');
+      final siteHash = await _crypto.computeSiteHash(_masterKey!, url);
 
       items.add({
-        'site_hash':          await _crypto.computeSiteHash(_masterKey!, url),
+        'site_hash':          siteHash,
         'encrypted_metadata': await _crypto.encryptMetadata(
           _masterKey!,
           _buildEncryptedMetadata(name: name, url: url, login: login),
+          context: _metaCtx(siteHash),
         ),
-        'encrypted_payload':  await _crypto.encrypt(_masterKey!, pwd),
+        'encrypted_payload':  await _crypto.encryptBound(
+          _masterKey!,
+          pwd,
+          _payloadCtx(siteHash),
+        ),
         'has_2fa':            false,
         'has_seed_phrase':    false,
       });
@@ -466,9 +533,11 @@ class VaultService {
 
     try {
       if (entry['encrypted_metadata'] != null) {
+        final siteHash = entry['site_hash'] as String?;
         final meta = await _crypto.decryptMetadata(
           _masterKey!,
           entry['encrypted_metadata'] as String,
+          context: siteHash != null ? _metaCtx(siteHash) : null,
         );
         entry['title']    = meta['name']       ?? meta['site_url'] ?? '';
         entry['subtitle'] = meta['site_login'] ?? '';
@@ -477,6 +546,10 @@ class VaultService {
             (meta['seed_phrase'] as String).trim().isNotEmpty;
       }
     } catch (_) {
+      // Decrypt failure here is also the malicious-server-swap signal: a v2
+      // metadata blob that was moved onto a different site_hash row will fail
+      // GCM authentication. We surface a placeholder rather than crash so the
+      // user can still see *which* row is suspect.
       entry['title']    = '(encrypted)';
       entry['subtitle'] = '';
     }
@@ -486,12 +559,17 @@ class VaultService {
   }
 
   Future<SecureBuffer?> decryptSeedPhraseFromMetadataSecure(
-    String? encryptedMetadata,
-  ) async {
+    String? encryptedMetadata, {
+    String? siteHash,
+  }) async {
     if (_masterKey == null) throw Exception('Vault is locked');
     if (encryptedMetadata == null || encryptedMetadata.isEmpty) return null;
 
-    final meta = await _crypto.decryptMetadata(_masterKey!, encryptedMetadata);
+    final meta = await _crypto.decryptMetadata(
+      _masterKey!,
+      encryptedMetadata,
+      context: siteHash != null ? _metaCtx(siteHash) : null,
+    );
     final seedPhrase = meta['seed_phrase'];
     if (seedPhrase is! String || seedPhrase.trim().isEmpty) return null;
     final bytes = Uint8List.fromList(utf8.encode(seedPhrase));
@@ -499,8 +577,14 @@ class VaultService {
     return SecureBuffer.fromBytes(bytes);
   }
 
-  Future<String?> decryptSeedPhraseFromMetadata(String? encryptedMetadata) async {
-    final buffer = await decryptSeedPhraseFromMetadataSecure(encryptedMetadata);
+  Future<String?> decryptSeedPhraseFromMetadata(
+    String? encryptedMetadata, {
+    String? siteHash,
+  }) async {
+    final buffer = await decryptSeedPhraseFromMetadataSecure(
+      encryptedMetadata,
+      siteHash: siteHash,
+    );
     if (buffer == null) return null;
     final bytes = buffer.getBytesCopy();
     try {
@@ -511,14 +595,24 @@ class VaultService {
     }
   }
 
+  // ── Account-level seed phrase (user profile, not per-record) ────────────────
+  // Bound to the `account-seed` namespace to keep it cryptographically
+  // separated from per-record blobs.
+
+  static const String _accountSeedCtx = 'account-seed';
+
   Future<String> encryptAccountSeedPhrase(String phrase) async {
     if (_masterKey == null) throw Exception('Vault is locked');
-    return _crypto.encrypt(_masterKey!, phrase.trim());
+    return _crypto.encryptBound(_masterKey!, phrase.trim(), _accountSeedCtx);
   }
 
   Future<SecureBuffer> decryptAccountSeedPhraseSecure(String encryptedB64) async {
     if (_masterKey == null) throw Exception('Vault is locked');
-    final plaintextBytes = await _crypto.decryptToBytes(_masterKey!, encryptedB64);
+    final plaintextBytes = await _crypto.decryptToBytes(
+      _masterKey!,
+      encryptedB64,
+      context: _accountSeedCtx,
+    );
     try {
       return SecureBuffer.fromBytes(plaintextBytes);
     } finally {

@@ -1,7 +1,9 @@
 # Security Audit — Zero Password Manager
 
-**Date:** 2026-04-28
-**Scope:** Full DevSec review against the KeePass + Bitwarden red-team checklist,
+**Date:** 2026-04-28 (v1) / 2026-04-28 (v2 addendum)
+**v2 scope:** Backend / E2E / Argon2 architectural review against the 2026
+ETH Zurich + academic Argon2 research checklist. See § "Round 2" below.
+**v1 scope:** Full DevSec review against the KeePass + Bitwarden red-team checklist,
 with mitigation of every CVE-class issue surfaced and a sweep of the
 crypto stack for OWASP 2023+ compliance.
 **Branch:** `claude/password-manager-security-checklist-8EMX6`
@@ -261,4 +263,197 @@ server/auth/service.py                FAKE_ARGON2_HASH (params-matched), removed
                                       generate_derived_key, fixed password-strength substring check
 server/auth/constants.py              Argon2 m=128MB, t=4, p=2 (single source of truth)
 docs/SECURITY_AUDIT.md                this report
+```
+
+---
+
+# Round 2 — Backend / E2E / Architectural
+
+This pass focuses on the threats the OWASP cheat-sheet doesn't cover:
+**malicious-backend** model, **recovery bypass**, **cryptographic binding**,
+and **downgrade**. Three new findings, all fixed.
+
+| #   | Finding                                                                | Severity | Status |
+|-----|------------------------------------------------------------------------|----------|--------|
+| R1  | Server-side seed-phrase encryption (key escrow / recovery bypass)      | CRITICAL | FIXED  |
+| R2  | AES-GCM AAD constant — vault entries swappable by malicious backend    | HIGH     | FIXED  |
+| R3  | Client trusted server-supplied `kdf_iterations` with no floor          | MEDIUM   | FIXED  |
+
+---
+
+## R1 — Server-side seed-phrase encryption (key escrow)
+
+**Files:** `server/main.py`, `server/utils.py`
+
+The `/profile/seed-phrase` SET endpoint accepted **two** body shapes:
+
+```json
+{ "seed_phrase_encrypted": "<client AES-GCM blob>" }   // zero-knowledge path
+{ "seed_phrase":           "<plaintext mnemonic>"  }   // server-encrypts path
+```
+
+The plaintext path called `EncryptionService.encrypt(plaintext)` in
+`server/utils.py`, which used the server-resident `SEED_PHRASE_KEY` env var
+to wrap the blob with AES-GCM and store it. **This is the textbook
+key-escrow / recovery-bypass anti-pattern** highlighted by the 2026
+research: a single backend compromise (DB dump + the env file from the
+same host) decrypts every user's seed phrase and unlocks every vault via
+the seed-phrase recovery flow — without ever touching the master password.
+
+The corresponding GET endpoint compounded the problem by reading
+`current_user.seed_phrase_encrypted`, server-decrypting any non-`client:`
+prefix value, and returning **the plaintext** to the client over HTTPS,
+turning the database into a plaintext oracle for any privileged caller.
+
+**Fix:**
+
+* Plaintext path is rejected outright — any request with a
+  `seed_phrase` field but no `seed_phrase_encrypted` returns
+  `400 plaintext_seed_phrase_disallowed` and emits a
+  `seed_phrase_plaintext_rejected` audit event.
+* Legacy stored blobs (no `client:` prefix) are no longer decrypted on
+  read. The GET endpoint returns
+  `409 legacy_seed_phrase_format` and instructs the client to
+  re-enrol. No path through the API can leak a server-decrypted seed
+  phrase any more.
+* `EncryptionService` is removed from `server/utils.py` along with its
+  import in `main.py`. The class is preserved as a comment-only marker
+  explaining why it intentionally does not exist.
+
+**Note:** the `SEED_PHRASE_KEY` env var is retained because legacy DB rows
+written before this migration may still exist; they are now permanently
+unreadable through the API and should be wiped or re-enrolled.
+
+---
+
+## R2 — AAD binding flaw (malicious-backend record swap)
+
+**Files:** `lib/services/crypto_service.dart`, `lib/services/vault_service.dart`,
+`lib/screens/password_detail_screen.dart`,
+`lib/screens/edit_password_screen.dart`,
+`lib/screens/passwords_screen.dart`
+
+Every per-row vault encryption used `AesGcm.encrypt(...)` with **no AAD**.
+That makes the ciphertext authenticated against tampering of the bytes
+themselves, but **not** against being moved between rows. A malicious
+or compromised backend can perform a row-swap attack:
+
+```
+DB before:                              DB after server tampering:
+  row A: site_hash=H_bank   payload=P_bank      row A: site_hash=H_bank   payload=P_test
+  row B: site_hash=H_test   payload=P_test      row B: site_hash=H_test   payload=P_bank
+```
+
+GCM authentication passes for both rows (same key, same AAD = empty),
+the user's UI happily renders "bank.com → tEst123!" and ships their
+real bank password to the test domain on next autofill.
+
+**Fix — AAD-bound v2 ciphertext format:**
+
+* `CryptoService.encryptBound(key, plaintext, context)` produces
+  `"v2:" + base64(nonce ‖ ct ‖ tag)` with
+  `AAD = utf8("vault-data:v2:<context>")`.
+* `decryptToBytes` / `decrypt` route on the `v2:` prefix: v2 blobs require
+  the caller-supplied `context` and fail GCM authentication if it
+  doesn't match the value used at encrypt time.  v1 (legacy)
+  ciphertexts continue to decrypt with empty AAD for backwards
+  compatibility.
+* The context for vault entries is derived from the row's `site_hash`,
+  which is `HMAC(masterKey, lower(url))` — a value the server cannot
+  forge:
+  - `payload` blobs ⇒ `"payload:<site_hash>"`
+  - `metadata` blobs ⇒ `"meta:<site_hash>"`
+  - `notes` blobs ⇒ `"notes:<site_hash>"`
+* Account-level seed phrase is bound to the fixed namespace
+  `"account-seed"` for cryptographic domain separation.
+* Any swap by the backend pairs a v2 ciphertext with a different
+  `site_hash` than the one that authenticated it ⇒ AES-GCM tag check
+  fails ⇒ the entry surfaces as `(encrypted)` in the UI rather than
+  silently displaying the wrong row's data.
+* `_v2Prefix` is the literal string `v2:`. The `:` byte is outside the
+  base64 alphabet (`A-Za-z0-9+/=`), so v1 base64 strings can never
+  collide with the v2 prefix — autodetect is unambiguous.
+* Refusing to decrypt a v2 blob without a context throws
+  `StateError` rather than silently downgrading to empty AAD, removing
+  the most obvious foot-gun.
+
+All call-sites — list view (`passwords_screen.dart`), detail view
+(`password_detail_screen.dart`), edit view (`edit_password_screen.dart`),
+and the import path — now thread `site_hash` through to the decrypt
+methods. New writes (add / update / import) emit v2 unconditionally;
+existing v1 vault data continues to decrypt and is implicitly upgraded
+on the next edit.
+
+---
+
+## R3 — KDF iteration downgrade defence
+
+**File:** `lib/services/crypto_service.dart`
+
+The v1 round of fixes added a per-user `kdf_iterations` field returned
+by the server. That introduced a new attack surface: a malicious server
+(or anyone in the TLS path post-cert-pinning failure) could tell a
+*registering* client to use a tiny iteration count — say 1 000 — and
+then offline-brute the resulting weak vault key from a stolen DB dump.
+
+**Fix:** `CryptoService` now enforces a hard floor of
+`minAcceptableKdfIterations = 100 000`. Any server-supplied value below
+that is rejected by `_validateIterations` with an explicit
+`KDF downgrade rejected` error. The floor is intentionally the legacy
+value (rather than the new 600 k default) so existing accounts continue
+to unlock; new registrations get 600 k from `create_user()` and are
+upgraded on master-password change for legacy accounts.
+
+---
+
+## Architectural items reviewed and confirmed safe
+
+| Concern (from the 2026 checklist)                  | Status |
+|----------------------------------------------------|--------|
+| Sharing flow re-encrypts plaintext with ephemeral AES key, sender transmits key OOB; server stores only opaque ciphertext (`server/models.py::PasswordShare`). Server cannot decrypt or substitute the share key. | OK — but see follow-up on key authentication below |
+| Emergency-access vault snapshot uses an ephemeral share key, encrypted client-side; server stores only ciphertext. | OK |
+| Site-hash blind index is keyed (HMAC under master key), not just a plain hash — server cannot enumerate or correlate URLs across users. | OK |
+| Argon2id server-side hash params (`m=128MB, t=4, p=2`) exceed OWASP 2024 minimums; no PBKDF2 fallback in the verify path. | OK (after v1 unification) |
+| Vault metadata leakage: server sees `(user_id, count, timestamps, site_hash)` — irreducible without per-user padding/PIR. Acceptable for the threat model; documented for users. | OK |
+| Master password never crosses the network — only PBKDF2-derived material is used to wrap the vault. | OK |
+| Refresh tokens stored as SHA-256 hashes with `compare_digest`; tokens carry a UUID prefix for `O(1)` revocation. | OK |
+| OTP / MFA replay protected by atomic DB UniqueConstraint inserts. | OK |
+
+---
+
+## Round-2 follow-up items (non-blocking)
+
+1. **Public-key authentication for sharing.** Today the share key travels
+   out-of-band and the recipient's identity is asserted by login string.
+   A signed-share scheme (sender signs the share blob with an account
+   long-term key, recipient verifies) would close the residual
+   "server tells Mallory she's Bob" gap. Requires a new
+   `User.share_pubkey` column and a TOFU prompt in the UI.
+2. **Server-issued `kdf_min_iterations` policy header** — letting the
+   server *raise* the floor for an org without breaking individual
+   downgrade defence, by signalling a minimum which the client compares
+   to its hard-coded floor.
+3. **Vault re-encryption job** for pre-v2 entries when the user changes
+   their master password (already a planned migration; v2 just adds the
+   AAD step).
+4. **Wipe the `SEED_PHRASE_KEY` env var** from production once all known
+   legacy rows have been re-enrolled. The codebase no longer reads it.
+
+---
+
+## Round-2 files changed
+
+```
+server/main.py                   reject plaintext seed_phrase, refuse
+                                 server-decrypt for legacy blobs
+server/utils.py                  drop EncryptionService (key escrow class)
+lib/services/crypto_service.dart encryptBound/decryptBound, v2: prefix,
+                                 KDF iteration floor enforcement
+lib/services/vault_service.dart  thread site_hash AAD context through
+                                 all encrypt/decrypt paths, account-seed
+                                 namespace, decryptNotesSecure
+lib/screens/password_detail_screen.dart  pass _siteHash into decrypts
+lib/screens/edit_password_screen.dart    pass siteHash into decrypts
+lib/screens/passwords_screen.dart        pass siteHash into _copyPassword
+docs/SECURITY_AUDIT.md           this addendum
 ```

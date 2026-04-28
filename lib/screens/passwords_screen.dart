@@ -368,11 +368,11 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
   // ── clipboard helpers ───────────────────────────────────────────────────────
 
-  Future<void> _copyPassword(String? encryptedPayload) async {
+  Future<void> _copyPassword(String? encryptedPayload, {String? siteHash}) async {
     if (encryptedPayload == null || encryptedPayload.isEmpty) return;
 
     try {
-      final buf = await VaultService().decryptPayloadSecure(encryptedPayload);
+      final buf = await VaultService().decryptPayloadSecure(encryptedPayload, siteHash: siteHash);
       await copySecureBuffer(buf);
 
       if (mounted) {
@@ -1515,7 +1515,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                   style: TextStyle(color: AppColors.text, fontSize: 15)),
               onTap: () {
                 Navigator.pop(ctx);
-                _copyPassword(item['encrypted_payload'] ?? '');
+                _copyPassword(item['encrypted_payload'] ?? '', siteHash: item['site_hash'] as String?);
               },
             ),
             const SizedBox(height: 8),
@@ -1762,7 +1762,7 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
                       ),
                       IconButton(
                         icon: Icon(Icons.copy, color: AppColors.button),
-                        onPressed: () => _copyPassword(item['encrypted_payload'] ?? ''),
+                        onPressed: () => _copyPassword(item['encrypted_payload'] ?? '', siteHash: item['site_hash'] as String?),
                         tooltip: 'Копировать пароль',
                       ),
                     ],

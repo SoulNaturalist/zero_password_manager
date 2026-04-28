@@ -1,47 +1,20 @@
-import base64
-import os
 import urllib.parse
 import ipaddress
 from typing import Optional
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request
 
 from .config import settings
 
 
-class EncryptionService:
-    @staticmethod
-    def _get_key() -> bytes:
-        # Ensure key is 32 bytes for AesGcm
-        key_str = settings.SEED_PHRASE_KEY
-        key_bytes = key_str.encode()
-        if len(key_bytes) < 32:
-            return key_bytes.ljust(32, b'\0')
-        return key_bytes[:32]
-
-    @classmethod
-    def encrypt(cls, plaintext: str) -> str:
-        if not plaintext:
-            return ""
-        aesgcm = AESGCM(cls._get_key())
-        nonce = os.urandom(12)
-        ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
-        return base64.b64encode(nonce + ciphertext).decode()
-
-    @classmethod
-    def decrypt(cls, encrypted_b64: str) -> str:
-        if not encrypted_b64:
-            return ""
-        try:
-            data = base64.b64decode(encrypted_b64)
-            nonce = data[:12]
-            ciphertext = data[12:]
-            aesgcm = AESGCM(cls._get_key())
-            decrypted = aesgcm.decrypt(nonce, ciphertext, None)
-            return decrypted.decode()
-        except Exception:
-            return ""
+# NOTE: the legacy `EncryptionService` (server-side seed-phrase encryption)
+# was REMOVED as part of the zero-knowledge audit. The server must not hold
+# a key capable of decrypting user secrets — that's the recovery-bypass
+# anti-pattern flagged by the 2026 ETH Zurich password-manager research.
+# All seed phrases are now stored exclusively as client-encrypted blobs
+# (see /profile/seed-phrase in main.py and the `client:` storage prefix).
+# The SEED_PHRASE_KEY env var is retained only because legacy DB rows from
+# before this migration still exist; they are no longer decrypted server-side.
 
 
 def get_client_ip(request: Request) -> str:
