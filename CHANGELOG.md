@@ -29,6 +29,7 @@ every push to `main` — do not edit it by hand.
 
 ### 🔒 Security
 
+- Harden KDF, biometric, and Argon2 timing channel Audit findings + fixes (see docs/SECURITY_AUDIT.md for the full report): CRITICAL * PBKDF2 …
 - Fix 14 backend CVE/CWE vulnerabilities (P0–P2) CWE-287 — TOTP Replay (Race Condition, CVSS 9.1) models.py: UniqueConstraint('user_id','otp',…
 
 
