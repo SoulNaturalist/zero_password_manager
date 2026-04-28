@@ -9,23 +9,29 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 ///
 /// CVE mitigations:
 ///   CWE-922 — pin_hash stored in FlutterSecureStorage, not SharedPreferences
-///   CWE-327 — PBKDF2 with 100k iterations + unique 16-byte salt (no rainbow tables)
+///   CWE-327 — PBKDF2 with OWASP-recommended 600k iterations (was 100k pre-audit)
+///             + unique 16-byte salt (no rainbow tables)
 ///   CWE-284 — failed-attempt counter + lockout timestamp persisted in secure storage
+///
+/// Legacy hashes created with 100 000 iterations are auto-migrated on the
+/// next successful unlock (see [verifyPin]).
 class PinSecurity {
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
       encryptedSharedPreferences: false,  // Use KeyStore+SharedPreferences (API 18+, more compatible)
     ),
     iOptions: IOSOptions(
-      accessibility: KeychainAccessibility.first_unlock,
+      // _this_device_only blocks iCloud Keychain backup of the PIN hash.
+      accessibility: KeychainAccessibility.first_unlock_this_device_only,
     ),
   );
 
   // Storage keys
-  static const _saltKey     = 'pin_kdf_salt';
-  static const _hashKey     = 'pin_kdf_hash';
-  static const _attemptsKey = 'pin_attempts';
-  static const _lockoutKey  = 'pin_lockout_until';
+  static const _saltKey       = 'pin_kdf_salt';
+  static const _hashKey       = 'pin_kdf_hash';
+  static const _iterationsKey = 'pin_kdf_iterations';
+  static const _attemptsKey   = 'pin_attempts';
+  static const _lockoutKey    = 'pin_lockout_until';
 
   // Lockout policy
   static const int maxAttempts = 3;
@@ -33,19 +39,31 @@ class PinSecurity {
 
   // ── PBKDF2 derivation ─────────────────────────────────────────────────────
 
-  static final _pbkdf2 = Pbkdf2(
-    macAlgorithm: Hmac.sha256(),
-    iterations: 100000,
-    bits: 256,
-  );
+  /// OWASP 2023+ recommended minimum for PBKDF2-HMAC-SHA256.
+  static const int currentIterations = 600000;
+  static const int legacyIterations  = 100000;
 
-  /// Derives a 32-byte key from raw PIN bytes and a salt.
-  static Future<List<int>> _derive(List<int> pinBytes, List<int> salt) async {
-    final sk = await _pbkdf2.deriveKey(
+  /// Derives a 32-byte key from raw PIN bytes, a salt and an iteration count.
+  static Future<List<int>> _derive(
+    List<int> pinBytes,
+    List<int> salt,
+    int iterations,
+  ) async {
+    final pbkdf2 = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: iterations,
+      bits: 256,
+    );
+    final sk = await pbkdf2.deriveKey(
       secretKey: SecretKey(pinBytes),
       nonce: salt,
     );
     return sk.extractBytes();
+  }
+
+  static Future<int> _readIterations() async {
+    final raw = await _storage.read(key: _iterationsKey);
+    return int.tryParse(raw ?? '') ?? legacyIterations;
   }
 
   // ── Storage operations ─────────────────────────────────────────────────────
@@ -55,9 +73,10 @@ class PinSecurity {
   static Future<void> storePinHash(Uint8List pinBytes) async {
     final rng  = Random.secure();
     final salt = List<int>.generate(16, (_) => rng.nextInt(256));
-    final hash = await _derive(pinBytes, salt);
+    final hash = await _derive(pinBytes, salt, currentIterations);
     await _storage.write(key: _saltKey, value: base64.encode(salt));
     await _storage.write(key: _hashKey, value: base64.encode(hash));
+    await _storage.write(key: _iterationsKey, value: '$currentIterations');
     // Reset any leftover rate-limit state
     await _storage.delete(key: _attemptsKey);
     await _storage.delete(key: _lockoutKey);
@@ -69,21 +88,35 @@ class PinSecurity {
 
   /// Verifies raw PIN bytes against the stored PBKDF2 hash.
   /// Uses constant-time comparison to prevent timing attacks.
+  ///
+  /// On successful verification of a *legacy* hash (100k iterations) the hash
+  /// is transparently re-derived with the current 600k iteration count and
+  /// re-written to secure storage — no user-visible re-prompt required.
   static Future<bool> verifyPin(Uint8List pinBytes) async {
     final saltB64 = await _storage.read(key: _saltKey);
     final hashB64 = await _storage.read(key: _hashKey);
     if (saltB64 == null || hashB64 == null) return false;
 
-    final salt    = base64.decode(saltB64);
-    final stored  = base64.decode(hashB64);
-    final derived = await _derive(pinBytes, salt);
-    return _constantTimeEqual(derived, stored);
+    final salt       = base64.decode(saltB64);
+    final stored     = base64.decode(hashB64);
+    final iterations = await _readIterations();
+    final derived    = await _derive(pinBytes, salt, iterations);
+    final ok         = _constantTimeEqual(derived, stored);
+
+    if (ok && iterations < currentIterations) {
+      // Auto-migrate legacy 100k hash → 600k. Same salt, same PIN, new hash.
+      final fresh = await _derive(pinBytes, salt, currentIterations);
+      await _storage.write(key: _hashKey, value: base64.encode(fresh));
+      await _storage.write(key: _iterationsKey, value: '$currentIterations');
+    }
+    return ok;
   }
 
   /// Permanently removes all PIN data (called on duress wipe or logout).
   static Future<void> clearPinData() async {
     await _storage.delete(key: _saltKey);
     await _storage.delete(key: _hashKey);
+    await _storage.delete(key: _iterationsKey);
     await _storage.delete(key: _attemptsKey);
     await _storage.delete(key: _lockoutKey);
   }

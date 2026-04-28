@@ -12,6 +12,10 @@ class User(Base):
     login = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     salt = Column(String, nullable=False)  # Base64 salt for client-side KDF
+    # PBKDF2-HMAC-SHA256 iteration count chosen at registration. Stored per-user
+    # so we can raise the OWASP minimum globally without breaking existing vaults.
+    # NULL ⇒ pre-migration user → client falls back to legacy 100 000.
+    kdf_iterations = Column(Integer, nullable=True, default=600000)
     telegram_chat_id = Column(String, nullable=True) # Added for per-user security alerts
 
     # 2FA and Security Fields

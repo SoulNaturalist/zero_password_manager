@@ -45,15 +45,20 @@ from .exceptions import (
 from .. import schemas as _root_schemas  # avoid circular: use local schemas below
 from .schemas import UserCreate, LoginPhase1Response, TOTPConfirmRequest, Token
 
-_pwd_context = CryptContext(
-    schemes=["argon2"],
-    deprecated="auto",
-    argon2__memory_cost=65536,
-    argon2__time_cost=3,
-    argon2__parallelism=4
-)
-
+# Single hashing context lives in SecurityManager (server/security.py).
+# Keep only the password-strength regex here.
 _PASSWORD_RE = re.compile(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{14,}$')
+
+# Argon2id fake-verify hash for user-enumeration defense.
+# CRITICAL: parameters MUST match SECURITY_PARAMS["ARGON2"] in server/security.py
+# so that verify_password(plain, FAKE_ARGON2_HASH) takes the same wall-clock
+# time as verify_password(plain, real_user.hashed_password). Mismatched
+# memory/time costs leak `user_exists` via timing.
+FAKE_ARGON2_HASH = (
+    "$argon2id$v=19$m=131072,t=4,p=2$"
+    "c2FsdHNhbHRzYWx0c2FsdA$"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
 
 
 # ── Password hashing ──────────────────────────────────────────────────────────
@@ -181,7 +186,7 @@ def authenticate_user(db: Session, login: str, password: str):
     user = get_user_by_login(db, login)
     
     # Always perform a hash verification to maintain constant time
-    fake_hash = "$argon2id$v=19$m=65536,t=3,p=4$fake$fakehash"
+    fake_hash = FAKE_ARGON2_HASH
     
     if not user:
         verify_password(password, fake_hash)
@@ -349,7 +354,7 @@ def verify_refresh_token(db: Session, token: str):
 
     db_token = db.get(RefreshToken, token_id)
 
-    fake_hash = "$argon2id$v=19$m=65536,t=3,p=4$fake$fakehash"
+    fake_hash = FAKE_ARGON2_HASH
 
     if not db_token:
         # Use a constant time check even for invalid IDs
@@ -396,6 +401,8 @@ def create_user(db: Session, data: UserCreate) -> User:
         login=data.login,
         hashed_password=hash_password(data.password),
         salt=data.salt if data.salt else generate_salt(),
+        # OWASP 2023+ minimum for PBKDF2-HMAC-SHA256 client-side KDF.
+        kdf_iterations=600000,
     )
     db.add(user)
     db.commit()
@@ -438,13 +445,17 @@ def is_password_strong_enhanced(password: str) -> bool:
     }
     
     clean_pwd = password.strip().lower()
-    if clean_pwd in common_passwords or any(cp in clean_pwd for cp in ["12345", "qwerty", "asdfgh"]):
+    # Exact-match against the common-password set only — substring checks
+    # ("12345" in "MyL0ngP@ss12345!") wrongly reject otherwise strong passwords
+    # without adding security (zxcvbn already penalises sequence patterns
+    # heavily in the score check above).
+    if clean_pwd in common_passwords:
         return False
-    
+
     # Check for repetitive characters
     if len(set(password)) < 5:
         return False
-        
+
     return True
 
 
@@ -496,13 +507,6 @@ def decrypt_totp(data: str, user_id: int) -> str:
     cipher = AESGCM(derived_key[:32])
     aad = hashlib.sha256(info).digest()
     return cipher.decrypt(nonce, body, aad).decode()
-
-def generate_derived_key(user_id: int) -> bytes:
-    """Legacy derived key logic, replaced by HKDF in encrypt/decrypt_totp."""
-    master_key = base64.b64decode(settings.TOTP_MASTER_KEY)
-    import hashlib
-    salt = hashlib.sha256(str(user_id).encode()).digest()
-    return hashlib.pbkdf2_hmac('sha256', master_key, salt, 100000, dklen=32)
 
 def update_user_totp(
     db: Session,
