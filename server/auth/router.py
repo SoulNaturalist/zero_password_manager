@@ -152,6 +152,7 @@ def register(
         id=new_user.id,
         login=new_user.login,
         salt=new_user.salt,
+        kdf_iterations=new_user.kdf_iterations,
         totp_uri=totp_uri,
         totp_secret=secret,
         access_token=enrollment_token,
@@ -187,8 +188,9 @@ async def login_phase1(
     # 4. Защита от перебора
     # A valid (but unverifiable) argon2id hash used purely for constant-time
     # comparison when the login doesn't exist (prevents user-enumeration via
-    # timing). Salt must decode to >= 8 bytes; hash must be >= 12 bytes.
-    fake_hash = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    # timing). Parameters MUST match SECURITY_PARAMS["ARGON2"] — see service.py.
+    from .service import FAKE_ARGON2_HASH
+    fake_hash = FAKE_ARGON2_HASH
     password_valid = False
     
     if user_exists:
@@ -223,24 +225,26 @@ async def login_phase1(
             response = LoginPhase1Response(
                 requires_mfa=True,
                 mfa_token=mfa_token,
-                salt=user.salt
+                salt=user.salt,
+                kdf_iterations=user.kdf_iterations,
             )
         else:
             device_id = generate_device_id(request, body.device_info)
             access_token = create_access_token(user, device_id)
             refresh_token = create_refresh_token(db, user.id, device_id)
-            
+
             user.failed_login_attempts = 0
             attempt = db.query(FailedAttempt).filter_by(ip=ip_address).first()
             if attempt:
                 attempt.count = 0
             db.commit()
-            
+
             log_security_event(db, user.id, "login_success", {"device_id": device_id, "ip": ip_address}, ip_address)
-            
+
             response = LoginPhase1Response(
                 requires_mfa=False,
                 salt=user.salt,
+                kdf_iterations=user.kdf_iterations,
                 access_token=access_token,
                 refresh_token=refresh_token,
             )
@@ -374,6 +378,7 @@ async def login_phase2(
             user_id=user.id,
             login=user.login,
             salt=user.salt,
+            kdf_iterations=user.kdf_iterations,
             two_fa_required=False,
         )
 
@@ -487,6 +492,7 @@ async def confirm_2fa(
         user_id=current_user.id,
         login=current_user.login,
         salt=current_user.salt,
+        kdf_iterations=current_user.kdf_iterations,
         two_fa_required=False,
     )
 
@@ -644,8 +650,9 @@ async def reset_password(
     user = get_user_by_login(db, login=body.login)
     user_exists = user is not None
     
-    # Фейковые данные
-    fake_hash = "$argon2id$v=19$m=65536,t=3,p=4$fake$fakehash"
+    # Фейковые данные (params MUST match SECURITY_PARAMS["ARGON2"])
+    from .service import FAKE_ARGON2_HASH
+    fake_hash = FAKE_ARGON2_HASH
     fake_totp_secret = "JBSWY3DPEHPK3PXP"
     
     # ВСЕГДА выполняем проверку TOTP (реальную или фейковую)

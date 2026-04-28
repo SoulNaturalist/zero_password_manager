@@ -10,24 +10,40 @@ class CryptoService {
   final _aesGcm = AesGcm.with256bits();
   final _hmacSha256 = Hmac.sha256();
 
+  /// OWASP 2023+ recommended minimum for PBKDF2-HMAC-SHA256.
+  /// Bitwarden uses 600 000 since 2023; we match that as the new default.
+  /// Legacy vaults registered with 100 000 must pass `iterations: 100000`
+  /// explicitly until they re-derive on master-password change.
+  static const int defaultKdfIterations = 600000;
+  static const int legacyKdfIterations = 100000;
+
   /// Derives a 256-bit key from a master password and salt using PBKDF2-SHA256.
-  Future<SecretKey> deriveMasterKey(String password, String saltB64) async {
+  /// `iterations` MUST match the value used at registration time
+  /// (returned by the server alongside the salt).
+  Future<SecretKey> deriveMasterKey(
+    String password,
+    String saltB64, {
+    int iterations = defaultKdfIterations,
+  }) async {
     final salt = base64.decode(saltB64);
     final pbkdf2 = Pbkdf2(
       macAlgorithm: Hmac.sha256(),
-      iterations: 100000, // Standard high iteration count
+      iterations: iterations,
       bits: 256,
     );
-
     return await pbkdf2.deriveKeyFromPassword(password: password, nonce: salt);
   }
 
   /// Derives a 256-bit key directly from raw bytes (CWE-256: avoids String creation).
-  Future<SecretKey> deriveMasterKeyFromBytes(List<int> passwordBytes, String saltB64) async {
+  Future<SecretKey> deriveMasterKeyFromBytes(
+    List<int> passwordBytes,
+    String saltB64, {
+    int iterations = defaultKdfIterations,
+  }) async {
     final salt = base64.decode(saltB64);
     final pbkdf2 = Pbkdf2(
       macAlgorithm: Hmac.sha256(),
-      iterations: 100000,
+      iterations: iterations,
       bits: 256,
     );
     return await pbkdf2.deriveKey(secretKey: SecretKey(passwordBytes), nonce: salt);

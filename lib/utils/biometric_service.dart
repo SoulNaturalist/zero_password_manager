@@ -38,9 +38,14 @@ class BiometricService {
   }
 
   static final _auth = LocalAuthentication();
+  // _this_device_only blocks iCloud Keychain backup of the master-key blob.
+  // For a password manager, the master key MUST stay device-bound — otherwise
+  // a compromised iCloud account would silently exfiltrate the vault key.
   static final _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
-    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device_only,
+    ),
   );
 
   // ── Availability ───────────────────────────────────────────────────────────
@@ -111,7 +116,10 @@ class BiometricService {
       final didAuth = await _auth.authenticate(
         localizedReason: reason,
         options: const AuthenticationOptions(
-          biometricOnly: false, // allow device PIN fallback
+          // Device-PIN fallback would let a 4-digit screen-lock PIN unlock the
+          // entire vault, defeating the threat model of biometric+app-PIN
+          // separation. App-level PIN remains available via the normal flow.
+          biometricOnly: true,
           stickyAuth: true, // don't cancel on app switch
           useErrorDialogs: true,
         ),

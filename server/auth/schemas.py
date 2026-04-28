@@ -19,6 +19,7 @@ class UserResponse(BaseModel):
     id: int
     login: str
     salt: str
+    kdf_iterations: Optional[int] = None  # PBKDF2 iter count for client KDF
     totp_secret: Optional[str] = None
     totp_uri: Optional[str] = None
     access_token: Optional[str] = None  # short-lived enrollment token
@@ -33,6 +34,7 @@ class Token(BaseModel):
     user_id: Optional[int] = None
     login: Optional[str] = None
     salt: Optional[str] = None
+    kdf_iterations: Optional[int] = None
     two_fa_required: bool = False
 
 
@@ -54,6 +56,7 @@ class LoginPhase1Response(BaseModel):
     requires_mfa: bool
     mfa_token: Optional[str] = None
     salt: str
+    kdf_iterations: Optional[int] = None
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
 

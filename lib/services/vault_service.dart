@@ -22,7 +22,10 @@ class VaultService {
   final _cache  = CacheService();
   final _storage = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
-    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    // _this_device_only ⇒ blob never lands in iCloud Keychain backup.
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device_only,
+    ),
   );
 
   static const _storageKey = 'encrypted_master_key';
@@ -50,8 +53,16 @@ class VaultService {
     return base64.encode(bytes);
   }
 
-  static Future<SecretKey> generateMasterKey(String password, String salt) async =>
-      CryptoService().deriveMasterKey(password, salt);
+  static Future<SecretKey> generateMasterKey(
+    String password,
+    String salt, {
+    int? kdfIterations,
+  }) async =>
+      CryptoService().deriveMasterKey(
+        password,
+        salt,
+        iterations: kdfIterations ?? CryptoService.defaultKdfIterations,
+      );
 
   static Future<void> saveMasterKey(SecretKey masterKey) async =>
       VaultService().setKey(masterKey);
@@ -59,13 +70,40 @@ class VaultService {
   // ── Unlock / lock ────────────────────────────────────────────────────────────
 
   /// Derives master key from password+salt. Stores in biometric storage if enabled.
-  Future<void> unlock(String password, String salt) async {
-    _masterKey = await _crypto.deriveMasterKey(password, salt);
+  ///
+  /// `kdfIterations` MUST be the value the server returned alongside the salt
+  /// (NULL on legacy accounts → falls back to 100 000 for backwards compat).
+  /// Mismatched iterations silently produce a wrong key, which then fails
+  /// AES-GCM auth on the first decrypt — DO NOT guess.
+  Future<void> unlock(String password, String salt, {int? kdfIterations}) async {
+    final iterations = kdfIterations ?? CryptoService.legacyKdfIterations;
+    _masterKey = await _crypto.deriveMasterKey(password, salt, iterations: iterations);
 
     if (await BiometricService().isBiometricEnabled()) {
       final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
       await BiometricService().storeBiometricSecret(base64.encode(keyBytes));
       // Wipe extracted bytes immediately after use
+      keyBytes.fillRange(0, keyBytes.length, 0);
+    }
+  }
+
+  /// Bytes-only variant of [unlock] that never materialises the password as a
+  /// Dart `String`. Mitigates the CVE-2023-32784 class of memory-dump attacks.
+  Future<void> unlockFromBytes(
+    Uint8List passwordBytes,
+    String salt, {
+    int? kdfIterations,
+  }) async {
+    final iterations = kdfIterations ?? CryptoService.legacyKdfIterations;
+    _masterKey = await _crypto.deriveMasterKeyFromBytes(
+      passwordBytes,
+      salt,
+      iterations: iterations,
+    );
+
+    if (await BiometricService().isBiometricEnabled()) {
+      final keyBytes = Uint8List.fromList(await _masterKey!.extractBytes());
+      await BiometricService().storeBiometricSecret(base64.encode(keyBytes));
       keyBytes.fillRange(0, keyBytes.length, 0);
     }
   }

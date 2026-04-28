@@ -1,7 +1,9 @@
-# Argon2id parameters — OWASP recommended minimums (2024)
-ARGON2_TIME_COST   = 3
-ARGON2_MEMORY_COST = 65_536  # 64 MB
-ARGON2_PARALLELISM = 1
+# Argon2id parameters — single source of truth, mirrored in security.py.
+# Tuned above OWASP minimums (m=64 MB, t=3, p=1) to match a password-manager
+# threat model where the master-password hash protects everything.
+ARGON2_TIME_COST   = 4
+ARGON2_MEMORY_COST = 131_072  # 128 MB
+ARGON2_PARALLELISM = 2
 ARGON2_HASH_LEN    = 32
 
 # AES-256-GCM
