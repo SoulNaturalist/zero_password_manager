@@ -148,17 +148,17 @@ def register(
 
     audit(db, new_user.id, "register")
 
-    # Do not expose raw TOTP secret outside local development:
-    # leaking this value enables account takeover by anyone who captures traffic/logs.
-    response_totp_secret = secret if settings.ENVIRONMENT == "development" else None
+    # Do not expose TOTP enrollment material outside local development:
+    # both `totp_secret` and `totp_uri` contain the same seed and leakage enables account takeover.
+    expose_totp_bootstrap = settings.ENVIRONMENT == "development"
 
     return UserResponse(
         id=new_user.id,
         login=new_user.login,
         salt=new_user.salt,
         kdf_iterations=new_user.kdf_iterations,
-        totp_uri=totp_uri,
-        totp_secret=response_totp_secret,
+        totp_uri=totp_uri if expose_totp_bootstrap else None,
+        totp_secret=secret if expose_totp_bootstrap else None,
         access_token=enrollment_token,
     )
 
