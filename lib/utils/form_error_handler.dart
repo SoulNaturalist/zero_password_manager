@@ -17,10 +17,7 @@ class FormErrorHandler {
       error.fieldErrors!.forEach((field, messages) {
         // Attempt to find the field in the form
         if (formState.fields.containsKey(field)) {
-          formState.invalidateField(
-            name: field,
-            errorText: messages.join(', '),
-          );
+          formState.fields[field]?.invalidate(messages.join(', '));
           fieldMapped = true;
         }
       });

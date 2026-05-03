@@ -24,7 +24,7 @@ class VaultService {
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
     // _this_device_only ⇒ blob never lands in iCloud Keychain backup.
     iOptions: IOSOptions(
-      accessibility: KeychainAccessibility.first_unlock_this_device_only,
+      accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
   );
 

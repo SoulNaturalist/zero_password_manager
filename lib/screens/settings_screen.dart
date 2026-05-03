@@ -212,9 +212,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-    }
-  }
-  
   Future<void> _loadClipboardSettings() async {
     final delay = await MemorySecurity.getClipboardClearDelay();
     if (mounted) setState(() => _clipboardDelay = delay);

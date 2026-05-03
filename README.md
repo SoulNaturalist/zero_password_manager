@@ -253,7 +253,7 @@ Edit `env.prod`:
 
 ```env
 API_BASE_URL=http://YOUR_SERVER_IP:3000
-ENVIRONMENT=prod
+ENVIRONMENT=production
 ```
 
 ---
@@ -264,26 +264,26 @@ ENVIRONMENT=prod
 
 ```bash
 flutter pub get
-flutter build apk --release --dart-define=ENVIRONMENT=prod
+flutter build apk --release --dart-define=ENVIRONMENT=production
 # → build/app/outputs/flutter-apk/app-release.apk
 ```
 
 **Run on connected device / emulator:**
 
 ```bash
-flutter run --dart-define=ENVIRONMENT=prod
+flutter run --dart-define=ENVIRONMENT=production
 ```
 
 **Web:**
 
 ```bash
-flutter build web --release --dart-define=ENVIRONMENT=prod
+flutter build web --release --dart-define=ENVIRONMENT=production
 ```
 
 **iOS** *(requires macOS + Xcode):*
 
 ```bash
-flutter build ios --release --dart-define=ENVIRONMENT=prod
+flutter build ios --release --dart-define=ENVIRONMENT=production
 ```
 
 <br>

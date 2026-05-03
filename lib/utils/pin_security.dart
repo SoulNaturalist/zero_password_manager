@@ -22,7 +22,7 @@ class PinSecurity {
     ),
     iOptions: IOSOptions(
       // _this_device_only blocks iCloud Keychain backup of the PIN hash.
-      accessibility: KeychainAccessibility.first_unlock_this_device_only,
+      accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
   );
 
