@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
@@ -63,9 +64,16 @@ class WsService {
       await _subscription?.cancel();
       _subscription = null;
 
+      final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+      final checksum = sha256.convert(utf8.encode('$token:$ts')).toString();
+
       _channel = IOWebSocketChannel.connect(
         uri,
-        headers: {'Authorization': 'Bearer $token'},
+        headers: {
+          'Authorization': 'Bearer $token',
+          'X-WS-TS': ts,
+          'X-WS-CHECKSUM': checksum,
+        },
       );
 
       _isConnected = true;
