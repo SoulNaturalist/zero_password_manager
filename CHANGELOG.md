@@ -12,6 +12,7 @@ every push to `main` — do not edit it by hand.
 
 ### 🐛 Bug Fixes
 
+- **`flutter`** — Resolve settings_screen syntax and API compatibility build breaks
 - Landing localization
 - Biometrics bugs
 - Ws loop on client
@@ -24,6 +25,8 @@ every push to `main` — do not edit it by hand.
 
 ### 📖 Documentation
 
+- Add 2026-05 hardening vulnerabilities addendum
+- Update Quick Start ENVIRONMENT value to production
 - Add English feature guide
 
 
