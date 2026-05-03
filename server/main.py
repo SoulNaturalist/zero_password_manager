@@ -3,6 +3,7 @@ import secrets
 import string
 import time
 import hmac
+from hashlib import sha256
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -205,6 +206,34 @@ MAX_PAYLOAD_SIZE = 2 * 1024 * 1024  # 2MB
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+
+def _prod_safe_log(message: str, *args):
+    """Avoid sensitive telemetry in production logs."""
+    if settings.ENVIRONMENT == "production":
+        return
+    logger.info(message, *args)
+
+
+def _verify_ws_request_integrity(websocket: WebSocket, token: str) -> bool:
+    """Reject stale/replayed websocket handshakes using signed timestamp headers."""
+    ts = websocket.headers.get("x-ws-ts")
+    checksum = websocket.headers.get("x-ws-checksum")
+    if not ts or not checksum:
+        return False
+    try:
+        ts_i = int(ts)
+    except ValueError:
+        return False
+
+    now = int(time.time())
+    if abs(now - ts_i) > 45:
+        return False
+
+    payload = f"{token}:{ts_i}".encode()
+    expected = hmac.new(settings.DEVICE_SECRET.encode(), payload, sha256).hexdigest()
+    return hmac.compare_digest(expected, checksum)
+
+
 class ConnectionManager:
     def __init__(self):
         # user_id -> list of websockets to support multiple devices/tabs
@@ -215,13 +244,13 @@ class ConnectionManager:
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
         self.active_connections[user_id].append(websocket)
-        logger.info(f"WS: User {user_id} connected. Total active sessions for user: {len(self.active_connections[user_id])}")
+        _prod_safe_log("WS: user connected, active_sessions=%s", len(self.active_connections[user_id]))
 
     def disconnect(self, websocket: WebSocket, user_id: int):
         if user_id in self.active_connections:
             if websocket in self.active_connections[user_id]:
                 self.active_connections[user_id].remove(websocket)
-                logger.info(f"WS: User {user_id} session closed. Remaining sessions: {len(self.active_connections[user_id])}")
+                _prod_safe_log("WS: session closed, remaining_sessions=%s", len(self.active_connections[user_id]))
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
 
@@ -230,8 +259,9 @@ class ConnectionManager:
         for websocket in connections:
             try:
                 await websocket.send_json(message)
-            except Exception as e:
-                logger.error(f"WS: Failed to send message to user {user_id}: {str(e)}")
+            except Exception:
+                if settings.ENVIRONMENT != "production":
+                    logger.error("WS: message send failed")
 
 manager = ConnectionManager()
 
@@ -241,11 +271,18 @@ async def websocket_device_events(websocket: WebSocket, token: Optional[str] = N
     db: Optional[Session] = None
     try:
         auth_header = websocket.headers.get("authorization")
-        if (token is None or not token) and auth_header and auth_header.lower().startswith("bearer "):
+        if auth_header and auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
 
         if not token:
-            logger.warning(f"WS: Rejecting connection from {client_host} - No token")
+            if settings.ENVIRONMENT != "production":
+                logger.warning("WS: Rejecting connection - missing bearer token")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        if not _verify_ws_request_integrity(websocket, token):
+            if settings.ENVIRONMENT != "production":
+                logger.warning("WS: Rejecting connection - failed integrity check")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -257,8 +294,9 @@ async def websocket_device_events(websocket: WebSocket, token: Optional[str] = N
         user = auth_deps._resolve_user_from_token(token, db)
         user_id = user.id
 
-    except Exception as e:
-        logger.warning(f"WS: Auth failed for {client_host}: {str(e)}")
+    except Exception:
+        if settings.ENVIRONMENT != "production":
+            logger.warning("WS: Auth failed")
         try:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         except:
@@ -279,10 +317,12 @@ async def websocket_device_events(websocket: WebSocket, token: Optional[str] = N
     except WebSocketDisconnect:
         # Handled naturally
         pass
-    except Exception as e:
-        logger.error(f"WS: Exception in session for user {user_id}: {type(e).__name__}: {str(e)}")
-    except BaseException as e:
-        logger.error(f"WS: BaseException in session for user {user_id}: {type(e).__name__}: {str(e)}")
+    except Exception:
+        if settings.ENVIRONMENT != "production":
+            logger.error("WS: Session exception")
+    except BaseException:
+        if settings.ENVIRONMENT != "production":
+            logger.error("WS: BaseException in session")
     finally:
         manager.disconnect(websocket, user_id)
 
