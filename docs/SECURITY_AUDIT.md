@@ -457,3 +457,27 @@ lib/screens/edit_password_screen.dart    pass siteHash into decrypts
 lib/screens/passwords_screen.dart        pass siteHash into _copyPassword
 docs/SECURITY_AUDIT.md           this addendum
 ```
+
+---
+
+## 9. 2026-05 hardening addendum (post-audit fixes)
+
+After the initial v1/v2 audit, additional security regressions and deployment
+hardening gaps were identified and fixed.
+
+| Area | Finding | Risk | Fix |
+|------|---------|------|-----|
+| TOTP enrollment API | `/register` exposed TOTP bootstrap material (`totp_uri` / `totp_secret`) in non-dev flows | Account takeover if responses/logs are leaked | Return bootstrap data only in `ENVIRONMENT=development`; hidden in production paths |
+| OTP telemetry | Failed 2FA logs contained OTP context | Credential leakage via log pipelines | Removed OTP values from logs; keep only minimal context |
+| Timing side-channels | Several early-return auth branches responded faster | Account-state probing / signal leakage | Added constant-time response padding on critical early exits |
+| Sensitive operations authz | Import/share/emergency-binding actions could proceed without strict step-up | Post-auth abuse from stolen unlocked session | Added strict TOTP enforcement helper and applied to import/share/emergency bind endpoints |
+| Import abuse | `/import-passwords` rate limit too permissive | Resource abuse / bulk overwrite attempts | Reduced to `1/day` and kept batch-size cap |
+| WebSocket replay | WS handshake lacked freshness-bound integrity proof | Replay of old handshake material from logs/proxies | Added `X-WS-TS` + `X-WS-CHECKSUM` verification with freshness window and constant-time compare |
+| Production telemetry | WS logs exposed operational/session hints | Recon for active sessions/devices | Production-safe logging policy: suppress sensitive WS/auth details in prod |
+| Emergency access bypass scenario | Attacker could bind own “trusted contact” from unlocked victim session | Delayed exfil path bypassing user intent | Emergency contact binding now requires valid TOTP and enabled 2FA |
+| Runtime deployment posture | Misconfigured prod (non-Linux / SSH password auth enabled) | Host-level compromise amplification | Startup policy blocks unsafe runtime and prints remediation steps |
+
+### Notes
+- Flutter client transport was aligned with the new WS integrity contract by
+  sending `X-WS-TS` and `X-WS-CHECKSUM` headers during socket handshake.
+- Quick Start docs were updated to use `ENVIRONMENT=production` consistently.
