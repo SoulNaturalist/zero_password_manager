@@ -448,12 +448,11 @@ async def confirm_2fa(
         # valid_window=1 → ±30 s drift compensation (NIST 800-63B / RFC 6238)
         valid = totp_obj.verify(body.code, valid_window=1)
         if not valid:
-            now = datetime.utcnow()
-            expected = {str(offset): totp_obj.at(now + timedelta(seconds=offset))
-                        for offset in (-30, 0, 30)}
+            # Never log OTP values (received or expected): logs are frequently
+            # shipped to third-party systems and could be abused for account takeover.
             _log.warning(
-                "confirm_2fa: invalid TOTP for user_id=%s ip=%s | received=%r expected(±30s)=%s",
-                current_user.id, ip_address, body.code, expected,
+                "confirm_2fa: invalid TOTP for user_id=%s ip=%s",
+                current_user.id, ip_address,
             )
             handle_failed_otp_attempt(db, current_user, ip_address)
             log_security_event(db, current_user.id, "2fa_setup_failed",
