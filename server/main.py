@@ -60,6 +60,12 @@ def validate_base64(data: str) -> bool:
         return False
 
 
+def _require_strict_totp(request: Request, current_user: models.User, db: Session) -> None:
+    """Always require TOTP for high-risk endpoints (not configurable)."""
+    otp = request.headers.get("X-OTP")
+    if not current_user.totp_enabled or not current_user.totp_secret:
+        raise HTTPException(status_code=403, detail="2FA must be enabled for this operation")
+    verify_hardened_otp(db, current_user, otp, get_client_ip(request))
 
 
 def _ssh_password_login_enabled() -> bool:
@@ -497,15 +503,13 @@ def search_passwords(request: Request,
 @app.post("/import-passwords",
           response_model=List[schemas.PasswordResponse],
           status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit("1/day")
 def import_passwords(request: Request,
                     data: schemas.PasswordImport,
                     background_tasks: BackgroundTasks,
                     current_user: models.User = Depends(auth_deps.get_current_user),
                     db: Session = Depends(get_db)):
-    # OTP-Gated if configured
-    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
-        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"), background_tasks=background_tasks)
+    _require_strict_totp(request, current_user, db)
 
     # Sanity check: limit batch size to 500 items to avoid timeouts/OOM
     if len(data.items) > 500:
@@ -972,6 +976,7 @@ async def create_share(
     The client re-encrypts the payload with an ephemeral key before sending;
     the server never sees the plaintext or the share key.
     """
+    _require_strict_totp(request, current_user, db)
     # Verify recipient exists
     recipient = db.query(models.User).filter(models.User.login == share.recipient_login).first()
     if recipient is None:
@@ -1079,12 +1084,14 @@ async def get_share(
 
 @app.post("/sharing/{share_id}/accept", response_model=schemas.ShareResponse)
 async def accept_share(
+    request: Request,
     share_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db),
 ):
     """Mark an incoming share as accepted."""
+    _require_strict_totp(request, current_user, db)
     share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
     if share is None:
         raise HTTPException(status_code=404, detail="Share not found")
@@ -1107,12 +1114,14 @@ async def accept_share(
 
 @app.delete("/sharing/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_share(
+    request: Request,
     share_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db),
 ):
     """Revoke (delete) a share. Only the owner can revoke."""
+    _require_strict_totp(request, current_user, db)
     share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
     if share is None:
         raise HTTPException(status_code=404, detail="Share not found")
@@ -1138,10 +1147,7 @@ async def invite_emergency_contact(
     db: Session = Depends(get_db),
 ):
     """Bind a trusted emergency contact. Always requires valid TOTP."""
-    otp = request.headers.get("X-OTP")
-    if not current_user.totp_enabled or not current_user.totp_secret:
-        raise HTTPException(status_code=403, detail="2FA must be enabled to manage emergency contacts")
-    verify_hardened_otp(db, current_user, otp, get_client_ip(request))
+    _require_strict_totp(request, current_user, db)
     if not (1 <= body.wait_days <= 30):
         raise HTTPException(status_code=400, detail="wait_days must be 1-30")
 
