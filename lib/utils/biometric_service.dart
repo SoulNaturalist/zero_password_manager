@@ -44,7 +44,7 @@ class BiometricService {
   static final _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: false),
     iOptions: IOSOptions(
-      accessibility: KeychainAccessibility.first_unlock_this_device_only,
+      accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
   );
 
