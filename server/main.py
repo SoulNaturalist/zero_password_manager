@@ -5,6 +5,7 @@ import time
 import hmac
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pyotp
 import webauthn
@@ -23,6 +24,7 @@ from webauthn import (
     options_to_json,
 )
 import random
+import platform
 import asyncio
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +59,62 @@ def validate_base64(data: str) -> bool:
     except Exception:
         return False
 
+
+
+
+def _ssh_password_login_enabled() -> bool:
+    """Return True when OpenSSH password auth appears enabled."""
+    cfg = Path("/etc/ssh/sshd_config")
+    if not cfg.exists():
+        # In production we fail closed if we cannot verify SSH policy.
+        return True
+
+    effective = None
+    for raw in cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].lower() == "passwordauthentication":
+            effective = parts[1].lower()
+    # OpenSSH default is often "yes" if unset; fail closed.
+    return effective != "no"
+
+
+def enforce_runtime_security_policy() -> None:
+    """Block unsafe runtime configurations before API startup."""
+    if platform.system().lower() != "linux":
+        raise RuntimeError(
+            "Zero Vault backend is supported only on Linux hosts. "
+            "Windows deployments are not recommended for this server."
+        )
+
+    if settings.ENVIRONMENT == "development":
+        return
+
+    if settings.ENVIRONMENT == "production" and _ssh_password_login_enabled():
+        raise RuntimeError(
+            "Production startup blocked: SSH password login is enabled or not verifiable.\n\n"
+            "Required hardening steps:\n"
+            "1) Generate an SSH key pair on your admin workstation:\n"
+            "   ssh-keygen -t ed25519 -a 64 -C 'admin@your-host'\n"
+            "2) Copy the public key to the server account:\n"
+            "   ssh-copy-id <user>@<server-ip>\n"
+            "   # or append ~/.ssh/id_ed25519.pub to ~/.ssh/authorized_keys manually\n"
+            "3) Test key-based login in a new terminal:\n"
+            "   ssh <user>@<server-ip>\n"
+            "4) Disable password auth in /etc/ssh/sshd_config:\n"
+            "   PasswordAuthentication no\n"
+            "   ChallengeResponseAuthentication no\n"
+            "   UsePAM no\n"
+            "5) Validate SSH config and reload service:\n"
+            "   sudo sshd -t && sudo systemctl reload sshd\n"
+            "6) Keep one active root/admin session while testing to avoid lockout.\n"
+        )
+
+
+# Enforce platform + SSH hardening at import/startup time.
+enforce_runtime_security_policy()
 
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
