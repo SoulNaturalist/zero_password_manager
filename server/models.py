@@ -247,3 +247,21 @@ class PasswordShare(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     owner = relationship("User", foreign_keys=[owner_id])
+
+
+class EmergencyAccess(Base):
+    __tablename__ = "emergency_access"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grantor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    grantee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String, nullable=False, default="invited", index=True)
+    wait_days = Column(Integer, nullable=False, default=7)
+    encrypted_vault = Column(String, nullable=True)
+    last_checkin_at = Column(DateTime(timezone=True), nullable=True)
+    requested_at = Column(DateTime(timezone=True), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    grantor = relationship("User", foreign_keys=[grantor_id])
+    grantee = relationship("User", foreign_keys=[grantee_id])
