@@ -294,6 +294,7 @@ async def setup_2fa(
     if current_user.totp_enabled:
         log_security_event(db, current_user.id, "2fa_setup_attempt", 
             {"status": "already_enabled"}, None)
+        constant_time_response(start_time)
         raise HTTPException(
             status_code=400,
             detail="2FA is already enabled"
@@ -439,6 +440,7 @@ async def confirm_2fa(
     # verify_hardened_otp skips when totp_enabled=False, so for the
     # enrollment step we verify the code directly against the stored secret.
     if not current_user.totp_secret:
+        constant_time_response(start_time)
         raise HTTPException(status_code=400, detail="2FA not set up. Call /setup_2fa first.")
     try:
         totp_secret = decrypt_totp(current_user.totp_secret, current_user.id)
@@ -729,12 +731,15 @@ async def verify_totp_for_seed(
     db: Session = Depends(get_db),
 ):
     """Verify TOTP for obtaining a short-lived token for sensitive operations (Seed Phrase)."""
+    start_time = time.time()
     otp = request.headers.get("X-OTP")
     if not otp:
+        constant_time_response(start_time)
         raise HTTPException(status_code=400, detail="OTP code is required in X-OTP header")
 
     verify_hardened_otp(db, current_user, otp)
     seed_access_token = create_short_token(current_user.id)
+    constant_time_response(start_time)
     return {"seed_access_token": seed_access_token}
 
 
