@@ -40,7 +40,7 @@ from .auth.service import verify_hardened_otp
 from .config import settings
 from .database import engine, get_db
 import logging
-from .utils import get_favicon_url
+from .utils import get_favicon_url, get_client_ip
 from .auth.dependencies import get_current_user, get_seed_access_user
 from .middleware import SecurityMiddleware, ProxyHeadersMiddleware
 
@@ -1067,6 +1067,58 @@ async def revoke_share(
     crud.audit_event(db, current_user.id, "share_revoked",
                      {"share_id": share_id},
                      background_tasks=background_tasks)
+
+
+# ── Emergency access (trusted person) ───────────────────────────────────────
+
+@app.post("/emergency-access", response_model=schemas.EmergencyAccessResponse, status_code=status.HTTP_201_CREATED)
+async def invite_emergency_contact(
+    request: Request,
+    body: schemas.EmergencyInvite,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bind a trusted emergency contact. Always requires valid TOTP."""
+    otp = request.headers.get("X-OTP")
+    if not current_user.totp_enabled or not current_user.totp_secret:
+        raise HTTPException(status_code=403, detail="2FA must be enabled to manage emergency contacts")
+    verify_hardened_otp(db, current_user, otp, get_client_ip(request))
+    if not (1 <= body.wait_days <= 30):
+        raise HTTPException(status_code=400, detail="wait_days must be 1-30")
+
+    grantee = db.query(models.User).filter(models.User.login == body.grantee_login).first()
+    if not grantee:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    if grantee.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot assign yourself")
+
+    existing = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.grantor_id == current_user.id,
+        models.EmergencyAccess.grantee_id == grantee.id,
+        models.EmergencyAccess.status != "revoked",
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Emergency contact already exists")
+
+    ea = models.EmergencyAccess(
+        grantor_id=current_user.id,
+        grantee_id=grantee.id,
+        wait_days=body.wait_days,
+        status="invited",
+    )
+    db.add(ea)
+    db.commit()
+    db.refresh(ea)
+
+    crud.audit_event(db, current_user.id, "emergency_invited", {"ea_id": ea.id, "grantee_id": grantee.id}, background_tasks=background_tasks)
+    return schemas.EmergencyAccessResponse(
+        id=ea.id, grantor_id=ea.grantor_id, grantee_id=ea.grantee_id,
+        grantor_login=current_user.login, grantee_login=grantee.login,
+        status=ea.status, wait_days=ea.wait_days,
+        last_checkin_at=ea.last_checkin_at, requested_at=ea.requested_at,
+        approved_at=ea.approved_at, created_at=ea.created_at,
+    )
 
 
 if __name__ == "__main__":
