@@ -230,7 +230,7 @@ def _verify_ws_request_integrity(websocket: WebSocket, token: str) -> bool:
         return False
 
     payload = f"{token}:{ts_i}".encode()
-    expected = hmac.new(settings.DEVICE_SECRET.encode(), payload, sha256).hexdigest()
+    expected = sha256(payload).hexdigest()
     return hmac.compare_digest(expected, checksum)
 
 
