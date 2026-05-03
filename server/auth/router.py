@@ -148,13 +148,17 @@ def register(
 
     audit(db, new_user.id, "register")
 
+    # Do not expose TOTP enrollment material outside local development:
+    # both `totp_secret` and `totp_uri` contain the same seed and leakage enables account takeover.
+    expose_totp_bootstrap = settings.ENVIRONMENT == "development"
+
     return UserResponse(
         id=new_user.id,
         login=new_user.login,
         salt=new_user.salt,
         kdf_iterations=new_user.kdf_iterations,
-        totp_uri=totp_uri,
-        totp_secret=secret,
+        totp_uri=totp_uri if expose_totp_bootstrap else None,
+        totp_secret=secret if expose_totp_bootstrap else None,
         access_token=enrollment_token,
     )
 
@@ -290,6 +294,7 @@ async def setup_2fa(
     if current_user.totp_enabled:
         log_security_event(db, current_user.id, "2fa_setup_attempt", 
             {"status": "already_enabled"}, None)
+        constant_time_response(start_time)
         raise HTTPException(
             status_code=400,
             detail="2FA is already enabled"
@@ -435,6 +440,7 @@ async def confirm_2fa(
     # verify_hardened_otp skips when totp_enabled=False, so for the
     # enrollment step we verify the code directly against the stored secret.
     if not current_user.totp_secret:
+        constant_time_response(start_time)
         raise HTTPException(status_code=400, detail="2FA not set up. Call /setup_2fa first.")
     try:
         totp_secret = decrypt_totp(current_user.totp_secret, current_user.id)
@@ -442,12 +448,11 @@ async def confirm_2fa(
         # valid_window=1 → ±30 s drift compensation (NIST 800-63B / RFC 6238)
         valid = totp_obj.verify(body.code, valid_window=1)
         if not valid:
-            now = datetime.utcnow()
-            expected = {str(offset): totp_obj.at(now + timedelta(seconds=offset))
-                        for offset in (-30, 0, 30)}
+            # Never log OTP values (received or expected): logs are frequently
+            # shipped to third-party systems and could be abused for account takeover.
             _log.warning(
-                "confirm_2fa: invalid TOTP for user_id=%s ip=%s | received=%r expected(±30s)=%s",
-                current_user.id, ip_address, body.code, expected,
+                "confirm_2fa: invalid TOTP for user_id=%s ip=%s",
+                current_user.id, ip_address,
             )
             handle_failed_otp_attempt(db, current_user, ip_address)
             log_security_event(db, current_user.id, "2fa_setup_failed",
@@ -725,12 +730,15 @@ async def verify_totp_for_seed(
     db: Session = Depends(get_db),
 ):
     """Verify TOTP for obtaining a short-lived token for sensitive operations (Seed Phrase)."""
+    start_time = time.time()
     otp = request.headers.get("X-OTP")
     if not otp:
+        constant_time_response(start_time)
         raise HTTPException(status_code=400, detail="OTP code is required in X-OTP header")
 
     verify_hardened_otp(db, current_user, otp)
     seed_access_token = create_short_token(current_user.id)
+    constant_time_response(start_time)
     return {"seed_access_token": seed_access_token}
 
 

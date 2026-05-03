@@ -55,6 +55,16 @@ class TestRegister:
         assert "salt" in data and data["salt"]
         assert "id" in data
 
+    def test_register_hides_totp_bootstrap_in_production(self, client):
+        with patch("server.auth.router.settings") as mock_settings:
+            mock_settings.ENVIRONMENT = "production"
+            r = _register(client, login="prod-user")
+
+        assert r.status_code == 201
+        data = r.json()
+        assert data.get("totp_uri") is None
+        assert data.get("totp_secret") is None
+
     def test_duplicate_login_returns_400(self, client):
         _register(client)
         r = _register(client)
@@ -304,3 +314,28 @@ class TestLogout:
 
     def test_logout_requires_auth(self, client):
         assert client.post("/logout").status_code == 401
+
+
+class TestEmergencyAccessHardening:
+    def test_invite_requires_totp_header(self, client, db_session):
+        _register(client, login="owner")
+        _register(client, login="trusted")
+
+        owner = _get_user(db_session, "owner")
+        token = _make_token_for(owner, db_session)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Enable 2FA for owner
+        setup = client.post("/setup_2fa", headers=headers)
+        secret = setup.json()["secret"]
+        code = pyotp.TOTP(secret).now()
+        client.post("/confirm_2fa", json={"code": code}, headers=headers)
+
+        refreshed = _make_token_for(_get_user(db_session, "owner"), db_session)
+        auth_headers = {"Authorization": f"Bearer {refreshed}"}
+
+        missing_otp = client.post("/emergency-access", json={"grantee_login": "trusted", "wait_days": 7}, headers=auth_headers)
+        assert missing_otp.status_code in (401, 403)
+
+        ok = client.post("/emergency-access", json={"grantee_login": "trusted", "wait_days": 7}, headers={**auth_headers, "X-OTP": pyotp.TOTP(secret).now()})
+        assert ok.status_code == 201

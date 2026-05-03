@@ -51,3 +51,20 @@ def test_webauthn_origin_allows_configured_origin():
         headers=[(b"origin", b"http://localhost")],
     )
     assert _get_webauthn_origin(request) == "http://localhost"
+
+
+def test_runtime_policy_blocks_windows(monkeypatch):
+    import server.main as main
+    monkeypatch.setattr(main.platform, "system", lambda: "Windows")
+    with pytest.raises(RuntimeError, match="supported only on Linux"):
+        main.enforce_runtime_security_policy()
+
+
+def test_runtime_policy_blocks_production_with_ssh_password(monkeypatch):
+    import server.main as main
+    monkeypatch.setattr(main.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(main.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main, "_ssh_password_login_enabled", lambda: True)
+
+    with pytest.raises(RuntimeError, match="Production startup blocked"):
+        main.enforce_runtime_security_policy()

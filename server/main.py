@@ -5,6 +5,7 @@ import time
 import hmac
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pyotp
 import webauthn
@@ -23,6 +24,7 @@ from webauthn import (
     options_to_json,
 )
 import random
+import platform
 import asyncio
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +42,7 @@ from .auth.service import verify_hardened_otp
 from .config import settings
 from .database import engine, get_db
 import logging
-from .utils import get_favicon_url
+from .utils import get_favicon_url, get_client_ip
 from .auth.dependencies import get_current_user, get_seed_access_user
 from .middleware import SecurityMiddleware, ProxyHeadersMiddleware
 
@@ -57,6 +59,68 @@ def validate_base64(data: str) -> bool:
     except Exception:
         return False
 
+
+def _require_strict_totp(request: Request, current_user: models.User, db: Session) -> None:
+    """Always require TOTP for high-risk endpoints (not configurable)."""
+    otp = request.headers.get("X-OTP")
+    if not current_user.totp_enabled or not current_user.totp_secret:
+        raise HTTPException(status_code=403, detail="2FA must be enabled for this operation")
+    verify_hardened_otp(db, current_user, otp, get_client_ip(request))
+
+
+def _ssh_password_login_enabled() -> bool:
+    """Return True when OpenSSH password auth appears enabled."""
+    cfg = Path("/etc/ssh/sshd_config")
+    if not cfg.exists():
+        # In production we fail closed if we cannot verify SSH policy.
+        return True
+
+    effective = None
+    for raw in cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].lower() == "passwordauthentication":
+            effective = parts[1].lower()
+    # OpenSSH default is often "yes" if unset; fail closed.
+    return effective != "no"
+
+
+def enforce_runtime_security_policy() -> None:
+    """Block unsafe runtime configurations before API startup."""
+    if platform.system().lower() != "linux":
+        raise RuntimeError(
+            "Zero Vault backend is supported only on Linux hosts. "
+            "Windows deployments are not recommended for this server."
+        )
+
+    if settings.ENVIRONMENT == "development":
+        return
+
+    if settings.ENVIRONMENT == "production" and _ssh_password_login_enabled():
+        raise RuntimeError(
+            "Production startup blocked: SSH password login is enabled or not verifiable.\n\n"
+            "Required hardening steps:\n"
+            "1) Generate an SSH key pair on your admin workstation:\n"
+            "   ssh-keygen -t ed25519 -a 64 -C 'admin@your-host'\n"
+            "2) Copy the public key to the server account:\n"
+            "   ssh-copy-id <user>@<server-ip>\n"
+            "   # or append ~/.ssh/id_ed25519.pub to ~/.ssh/authorized_keys manually\n"
+            "3) Test key-based login in a new terminal:\n"
+            "   ssh <user>@<server-ip>\n"
+            "4) Disable password auth in /etc/ssh/sshd_config:\n"
+            "   PasswordAuthentication no\n"
+            "   ChallengeResponseAuthentication no\n"
+            "   UsePAM no\n"
+            "5) Validate SSH config and reload service:\n"
+            "   sudo sshd -t && sudo systemctl reload sshd\n"
+            "6) Keep one active root/admin session while testing to avoid lockout.\n"
+        )
+
+
+# Enforce platform + SSH hardening at import/startup time.
+enforce_runtime_security_policy()
 
 # Initialize database
 models.Base.metadata.create_all(bind=engine)
@@ -439,15 +503,13 @@ def search_passwords(request: Request,
 @app.post("/import-passwords",
           response_model=List[schemas.PasswordResponse],
           status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit("1/day")
 def import_passwords(request: Request,
                     data: schemas.PasswordImport,
                     background_tasks: BackgroundTasks,
                     current_user: models.User = Depends(auth_deps.get_current_user),
                     db: Session = Depends(get_db)):
-    # OTP-Gated if configured
-    if "vault_write" in settings.PERMISSIONS_OTP_LIST:
-        verify_hardened_otp(db, current_user, request.headers.get("X-OTP"), background_tasks=background_tasks)
+    _require_strict_totp(request, current_user, db)
 
     # Sanity check: limit batch size to 500 items to avoid timeouts/OOM
     if len(data.items) > 500:
@@ -914,6 +976,7 @@ async def create_share(
     The client re-encrypts the payload with an ephemeral key before sending;
     the server never sees the plaintext or the share key.
     """
+    _require_strict_totp(request, current_user, db)
     # Verify recipient exists
     recipient = db.query(models.User).filter(models.User.login == share.recipient_login).first()
     if recipient is None:
@@ -1021,12 +1084,14 @@ async def get_share(
 
 @app.post("/sharing/{share_id}/accept", response_model=schemas.ShareResponse)
 async def accept_share(
+    request: Request,
     share_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db),
 ):
     """Mark an incoming share as accepted."""
+    _require_strict_totp(request, current_user, db)
     share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
     if share is None:
         raise HTTPException(status_code=404, detail="Share not found")
@@ -1049,12 +1114,14 @@ async def accept_share(
 
 @app.delete("/sharing/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_share(
+    request: Request,
     share_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db),
 ):
     """Revoke (delete) a share. Only the owner can revoke."""
+    _require_strict_totp(request, current_user, db)
     share = db.query(models.PasswordShare).filter(models.PasswordShare.id == share_id).first()
     if share is None:
         raise HTTPException(status_code=404, detail="Share not found")
@@ -1067,6 +1134,55 @@ async def revoke_share(
     crud.audit_event(db, current_user.id, "share_revoked",
                      {"share_id": share_id},
                      background_tasks=background_tasks)
+
+
+# ── Emergency access (trusted person) ───────────────────────────────────────
+
+@app.post("/emergency-access", response_model=schemas.EmergencyAccessResponse, status_code=status.HTTP_201_CREATED)
+async def invite_emergency_contact(
+    request: Request,
+    body: schemas.EmergencyInvite,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(auth_deps.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bind a trusted emergency contact. Always requires valid TOTP."""
+    _require_strict_totp(request, current_user, db)
+    if not (1 <= body.wait_days <= 30):
+        raise HTTPException(status_code=400, detail="wait_days must be 1-30")
+
+    grantee = db.query(models.User).filter(models.User.login == body.grantee_login).first()
+    if not grantee:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    if grantee.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot assign yourself")
+
+    existing = db.query(models.EmergencyAccess).filter(
+        models.EmergencyAccess.grantor_id == current_user.id,
+        models.EmergencyAccess.grantee_id == grantee.id,
+        models.EmergencyAccess.status != "revoked",
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Emergency contact already exists")
+
+    ea = models.EmergencyAccess(
+        grantor_id=current_user.id,
+        grantee_id=grantee.id,
+        wait_days=body.wait_days,
+        status="invited",
+    )
+    db.add(ea)
+    db.commit()
+    db.refresh(ea)
+
+    crud.audit_event(db, current_user.id, "emergency_invited", {"ea_id": ea.id, "grantee_id": grantee.id}, background_tasks=background_tasks)
+    return schemas.EmergencyAccessResponse(
+        id=ea.id, grantor_id=ea.grantor_id, grantee_id=ea.grantee_id,
+        grantor_login=current_user.login, grantee_login=grantee.login,
+        status=ea.status, wait_days=ea.wait_days,
+        last_checkin_at=ea.last_checkin_at, requested_at=ea.requested_at,
+        approved_at=ea.approved_at, created_at=ea.created_at,
+    )
 
 
 if __name__ == "__main__":
