@@ -55,6 +55,16 @@ class TestRegister:
         assert "salt" in data and data["salt"]
         assert "id" in data
 
+    def test_register_hides_totp_bootstrap_in_production(self, client):
+        with patch("server.auth.router.settings") as mock_settings:
+            mock_settings.ENVIRONMENT = "production"
+            r = _register(client, login="prod-user")
+
+        assert r.status_code == 201
+        data = r.json()
+        assert data.get("totp_uri") is None
+        assert data.get("totp_secret") is None
+
     def test_duplicate_login_returns_400(self, client):
         _register(client)
         r = _register(client)
