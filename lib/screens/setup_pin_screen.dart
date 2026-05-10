@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/colors.dart';
@@ -11,7 +12,7 @@ import '../utils/memory_security.dart';
 ///
 /// Security properties:
 ///   CWE-922 — PBKDF2 hash stored in FlutterSecureStorage (not SharedPreferences)
-///   CWE-327 — PBKDF2-HMAC-SHA256 with 100k iterations + unique 16-byte salt
+///   CWE-327 — PBKDF2-HMAC-SHA256 (600k iter, legacy auto-migrated) + unique salt
 ///   CWE-256 — PIN bytes never converted to an immutable Dart String
 class SetupPinScreen extends StatefulWidget {
   const SetupPinScreen({super.key});
@@ -151,7 +152,7 @@ class _SetupPinScreenState extends State<SetupPinScreen>
 
       _showSuccessAnimation();
     } catch (e, st) {
-      debugPrint('PIN save error: $e\n$st');
+      if (kDebugMode) debugPrint('PIN save error: $e\n$st');
       setState(() {
         _errorMessage = 'Ошибка сохранения PIN-кода';
         _isLoading = false;

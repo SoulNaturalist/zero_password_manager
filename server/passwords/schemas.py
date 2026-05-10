@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 from .constants import MAX_PAYLOAD_BYTES
 
@@ -32,5 +34,10 @@ class PasswordResponse(BaseModel):
     favicon_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("has_seed_phrase", mode="before")
+    @classmethod
+    def _suppress_seed_presence(cls, _: Any) -> bool:
+        return False
 
     model_config = {"from_attributes": True}

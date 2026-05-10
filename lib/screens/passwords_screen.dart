@@ -301,21 +301,44 @@ class _PasswordsScreenState extends State<PasswordsScreen> with RouteAware {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-      final List<dynamic> rawResults = data['results'] ?? [];
-        setState(() {
-          searchResults = rawResults.map<Map<String, dynamic>>((item) => {
+        final List<dynamic> rawResults = data['results'] ?? [];
+
+        final vault = VaultService();
+        final enriched = <Map<String, dynamic>>[];
+        for (final raw in rawResults) {
+          final item = Map<String, dynamic>.from(raw as Map<String, dynamic>);
+          Map<String, dynamic> decrypted = item;
+          if (!vault.isLocked) {
+            try {
+              decrypted = await vault.decryptMetadataForListItem(item);
+            } catch (_) {
+              // Malformed ciphertext or transient failure — keep ciphertext only.
+            }
+          }
+          enriched.add({
             'id':              item['id'],
-            'title':           item['site_url'] ?? '',
-            'subtitle':        item['site_login'] ?? '',
+            'title':           decrypted['title'] ??
+                decrypted['site_url'] ??
+                item['site_url'] ??
+                '',
+            'subtitle': decrypted['subtitle'] ??
+                decrypted['site_login'] ??
+                item['site_login'] ??
+                '',
             // Store only encrypted payload — never plaintext
-            'encrypted_payload':     item['encrypted_payload'],
-            'encrypted_metadata':    item['encrypted_metadata'],
-            'notes_encrypted':       item['notes_encrypted'],
-            'has_2fa':         item['has_2fa'] ?? false,
-            'has_seed_phrase': item['has_seed_phrase'] ?? false,
-            'favicon_url':     item['favicon_url'],
-            'folder_id':       item['folder_id'],
-          }).toList();
+            'encrypted_payload':  item['encrypted_payload'],
+            'encrypted_metadata': item['encrypted_metadata'],
+            'notes_encrypted':    item['notes_encrypted'],
+            'site_url': decrypted['site_url'] ?? item['site_url'] ?? '',
+            'has_2fa': item['has_2fa'] ?? false,
+            'has_seed_phrase': decrypted['has_seed_phrase'] ?? false,
+            'favicon_url': item['favicon_url'],
+            'folder_id': item['folder_id'],
+          });
+        }
+
+        setState(() {
+          searchResults = enriched;
           isSearching = false;
         });
       } else {

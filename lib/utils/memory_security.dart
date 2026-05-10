@@ -112,7 +112,7 @@ class MemorySecurity {
       // 5. Планируем безопасную очистку
       _scheduleSecureClipboardClear(clipboardHash, delay);
     } catch (e) {
-      debugPrint('Secure copy failed: $e');
+      if (kDebugMode) debugPrint('Secure copy failed: $e');
       // Fallback: стандартное копирование
       await Clipboard.setData(ClipboardData(text: sensitiveText));
     }
@@ -138,7 +138,7 @@ class MemorySecurity {
     try {
       await channel.invokeMethod('setSensitiveClipboard', {'text': text});
     } catch (e) {
-      debugPrint('Failed to mark clipboard as sensitive: $e');
+      if (kDebugMode) debugPrint('Failed to mark clipboard as sensitive: $e');
     }
   }
 
@@ -183,10 +183,13 @@ class MemorySecurity {
         // Очищаем только если это наш контент
         if (currentHash == originalHash) {
           await Clipboard.setData(const ClipboardData(text: ''));
-          debugPrint('Clipboard securely cleared after ${delay.inSeconds}s');
+          if (kDebugMode) {
+            debugPrint(
+                'Clipboard securely cleared after ${delay.inSeconds}s');
+          }
         }
       } catch (e) {
-        debugPrint('Failed to clear clipboard: $e');
+        if (kDebugMode) debugPrint('Failed to clear clipboard: $e');
       }
     });
   }
@@ -203,7 +206,7 @@ Future<void> nativeWipe(String? text) async {
   try {
     await _channel.invokeMethod('wipeString', text);
   } catch (e) {
-    debugPrint('Native wipe failed: $e');
+    if (kDebugMode) debugPrint('Native wipe failed: $e');
     // Fallback: хотя бы в Dart памяти (best-effort)
     final bytes = Uint8List.fromList(utf8.encode(text));
     bytes.fillRange(0, bytes.length, 0);

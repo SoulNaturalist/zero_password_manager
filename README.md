@@ -73,7 +73,7 @@ Detailed material for both users and security-conscious developers:
 
 **🔒 Security & Privacy**
 - AES-256-GCM end-to-end encryption
-- PBKDF2-SHA256 (100k iterations) key derivation
+- PBKDF2-SHA256 (600k iterations · legacy accounts auto-migrate from 100k) key derivation
 - Blind site hashing — URLs never stored in plaintext
 - Mandatory TOTP 2FA — no opt-out
 - Per-operation OTP gating on sensitive reads/writes
@@ -122,7 +122,7 @@ Passwords are encrypted **on your device** before a single byte reaches the netw
 ║       │                                                           ║
 ║       ▼                                                           ║
 ║  PBKDF2-SHA256                                                    ║
-║  (100,000 iterations · 256-bit output)                           ║
+║  (600,000 iterations default · 256-bit output; legacy 100k)        ║
 ║       │                                                           ║
 ║       ├──► Vault Key ──► AES-256-GCM ──► Encrypted Blob          ║
 ║       │                  (12-byte nonce · 16-byte auth tag)       ║
@@ -376,7 +376,7 @@ zero_password_manager/
 | Database | SQLite + SQLAlchemy 2.0 | Encrypted vault storage |
 | Vault encryption | AES-256-GCM | Symmetric authenticated encryption |
 | Login KDF | Argon2id (server-side) | Password hashing for login |
-| Vault KDF | PBKDF2-SHA256 (100k iter) | Vault key derivation on device |
+| Vault KDF | PBKDF2-SHA256 (600k iter, min 100k) | Vault key derivation on device |
 | Site obfuscation | HMAC-SHA256 | Blind site URL hashing |
 | Authentication | JWT HS256 (access + refresh) | Stateless session management |
 | Two-factor auth | TOTP (`pyotp`) | Time-based one-time passwords |

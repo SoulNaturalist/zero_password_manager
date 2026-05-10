@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -121,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         _playErrorShake();
       }
     } catch (e, st) {
-      debugPrint('Login error: $e\n$st');
+      if (kDebugMode) debugPrint('Login error: $e\n$st');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: LText('Ошибка подключения к серверу')),

@@ -35,7 +35,7 @@ def create_password(
         encrypted_payload=data.encrypted_payload,
         notes_encrypted=data.notes_encrypted,
         has_2fa=data.has_2fa,
-        has_seed_phrase=data.has_seed_phrase,
+        has_seed_phrase=False,
     )
     db.add(pw)
     db.commit()
@@ -55,7 +55,7 @@ def update_password(
     password.encrypted_payload = data.encrypted_payload
     password.notes_encrypted   = data.notes_encrypted
     password.has_2fa           = data.has_2fa
-    password.has_seed_phrase   = data.has_seed_phrase
+    password.has_seed_phrase   = False
     db.commit()
     db.refresh(password)
 
