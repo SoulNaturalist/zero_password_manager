@@ -177,6 +177,12 @@ class PasswordResponse(PasswordBase):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("has_seed_phrase", mode="before")
+    @classmethod
+    def _suppress_seed_presence(cls, _: Any) -> bool:
+        """Do not disclose which vault rows contain seed phrases (CWE-359)."""
+        return False
+
     class Config:
         from_attributes = True
 

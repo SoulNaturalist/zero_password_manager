@@ -319,6 +319,15 @@ class VaultService {
     );
   }
 
+  /// Search (and similar) APIs return encrypted rows; decrypt metadata so UI
+  /// flags like [has_seed_phrase] do not rely on server-supplied booleans.
+  Future<Map<String, dynamic>> decryptMetadataForListItem(
+    Map<String, dynamic> item,
+  ) async {
+    if (_masterKey == null) throw Exception('Vault is locked');
+    return _decryptMetadataOnly(Map<String, dynamic>.from(item));
+  }
+
   // ── Per-record AAD binding helpers ───────────────────────────────────────────
   //
   // The site_hash is HMAC-SHA256(masterKey, lower(url)) — the server cannot
@@ -401,7 +410,6 @@ class VaultService {
 
     final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
     final normalizedSeed = seedPhrase?.trim();
-    final hasSeedPhrase = normalizedSeed != null && normalizedSeed.isNotEmpty;
     final encMeta       = await _crypto.encryptMetadata(
       _masterKey!,
       _buildEncryptedMetadata(
@@ -426,7 +434,6 @@ class VaultService {
       'encrypted_metadata':     encMeta,
       'encrypted_payload':      encPayload,
       'notes_encrypted':        encNotes,
-      'has_seed_phrase':        hasSeedPhrase,
       'folder_id':              folderId,
     });
     
@@ -451,7 +458,6 @@ class VaultService {
 
     final siteHash      = await _crypto.computeSiteHash(_masterKey!, url);
     final normalizedSeed = seedPhrase?.trim();
-    final hasSeedPhrase = normalizedSeed != null && normalizedSeed.isNotEmpty;
     final encMeta       = await _crypto.encryptMetadata(
       _masterKey!,
       _buildEncryptedMetadata(
@@ -476,7 +482,6 @@ class VaultService {
       'encrypted_metadata':     encMeta,
       'encrypted_payload':      encPayload,
       'notes_encrypted':        encNotes,
-      'has_seed_phrase':        hasSeedPhrase,
     });
 
     // Wipe transient plaintext strings

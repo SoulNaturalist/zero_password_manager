@@ -297,7 +297,9 @@ def create_password(db: Session, password: schemas.PasswordCreate, user_id: int,
         notes_encrypted=password.notes_encrypted,
         encrypted_metadata=password.encrypted_metadata,
         has_2fa=password.has_2fa,
-        has_seed_phrase=password.has_seed_phrase
+        # Per-entry seed presence is derivable only after client decrypts metadata;
+        # nothing is persisted server-side (CWE-359 metadata leakage).
+        has_seed_phrase=False,
     )
     db.add(db_password)
     db.commit()
@@ -319,7 +321,7 @@ def import_passwords(db: Session, data: schemas.PasswordImport, user_id: int, ba
             notes_encrypted=item.notes_encrypted,
             encrypted_metadata=item.encrypted_metadata,
             has_2fa=item.has_2fa,
-            has_seed_phrase=item.has_seed_phrase
+            has_seed_phrase=False,
         )
         db.add(db_password)
         results.append(db_password)
@@ -355,7 +357,7 @@ def update_password(db: Session, password_id: int, password: schemas.PasswordUpd
     db_password.notes_encrypted = password.notes_encrypted
     db_password.encrypted_metadata = password.encrypted_metadata
     db_password.has_2fa = password.has_2fa
-    db_password.has_seed_phrase = password.has_seed_phrase
+    db_password.has_seed_phrase = False
     db.commit()
     db.refresh(db_password)
 

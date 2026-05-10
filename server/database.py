@@ -49,6 +49,14 @@ def run_migrations(engine) -> None:
             )
             conn.commit()
 
+        # Strip legacy per-entry seed-presence flags at rest (CWE-359). API already
+        # hides the field; this prevents disk backup leaks from stale TRUE values.
+        try:
+            conn.execute(text("UPDATE passwords SET has_seed_phrase = 0"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
 
 def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency: yields a database session and closes it when done."""

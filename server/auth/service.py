@@ -459,54 +459,62 @@ def is_password_strong_enhanced(password: str) -> bool:
     return True
 
 
-# Cache master key for performance
-MASTER_KEY = base64.b64decode(settings.TOTP_MASTER_KEY)
+_TOTP_WRAP_V2 = bytes([2])
+_TOTP_HKDF_SALT_LEN = 32
+
+
+def _totp_blob_b64url_decode(data: str) -> bytes:
+    pad = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + pad)
+
+
+def _derive_totp_wrap_key(master_key: bytes, user_id: int, hkdf_salt: Optional[bytes]) -> bytes:
+    """AES-256 wrap key for TOTP; legacy ciphertexts used HKDF with salt=None."""
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    hkdf = HKDF(
+        algorithm=SECURITY_PARAMS["HKDF"]["algorithm"],
+        length=SECURITY_PARAMS["HKDF"]["length"],
+        salt=hkdf_salt,
+        info=f"user-{user_id}".encode(),
+    )
+    return hkdf.derive(master_key)[:32]
+
 
 def encrypt_totp(secret: str, user_id: int) -> str:
-    """Encrypt TOTP secret with per-user unique key and nonce using HKDF."""
-    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-    
+    """Encrypt TOTP secret: random HKDF extract salt + AES-GCM."""
     master_key = base64.b64decode(settings.TOTP_MASTER_KEY)
-    info = f"user-{user_id}".encode()
-    
-    # Derive unique key using HKDF
-    hkdf = HKDF(
-        algorithm=SECURITY_PARAMS["HKDF"]["algorithm"],
-        length=SECURITY_PARAMS["HKDF"]["length"],
-        salt=None,
-        info=info,
-    )
-    derived_key = hkdf.derive(master_key)
-    
-    # Use AES-GCM with unique nonce
-    cipher = AESGCM(derived_key[:32])
-    nonce = secrets.token_bytes(12)
-    aad = hashlib.sha256(info).digest()
+    info_bytes = f"user-{user_id}".encode()
+    hkdf_salt = secrets.token_bytes(_TOTP_HKDF_SALT_LEN)
+    derived_key = _derive_totp_wrap_key(master_key, user_id, hkdf_salt)
+    cipher = AESGCM(derived_key)
+    nonce = secrets.token_bytes(AES_NONCE_LEN)
+    aad = hashlib.sha256(info_bytes).digest()
     encrypted = cipher.encrypt(nonce, secret.encode(), aad)
-    return base64.urlsafe_b64encode(nonce + encrypted).decode()
+    payload = _TOTP_WRAP_V2 + hkdf_salt + nonce + encrypted
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
 
 def decrypt_totp(data: str, user_id: int) -> str:
-    """Decrypt TOTP secret with per-user unique key using HKDF."""
-    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-    
-    payload = base64.urlsafe_b64decode(data)
-    nonce, body = payload[:12], payload[12:]
-    
+    """Decrypt v2 (salted HKDF) or legacy v1 TOTP ciphertext."""
     master_key = base64.b64decode(settings.TOTP_MASTER_KEY)
-    info = f"user-{user_id}".encode()
-    
-    # Derive same key using HKDF
-    hkdf = HKDF(
-        algorithm=SECURITY_PARAMS["HKDF"]["algorithm"],
-        length=SECURITY_PARAMS["HKDF"]["length"],
-        salt=None,
-        info=info,
-    )
-    derived_key = hkdf.derive(master_key)
-    
-    cipher = AESGCM(derived_key[:32])
-    aad = hashlib.sha256(info).digest()
+    info_bytes = f"user-{user_id}".encode()
+    aad = hashlib.sha256(info_bytes).digest()
+
+    payload = _totp_blob_b64url_decode(data)
+    header_end = 1 + _TOTP_HKDF_SALT_LEN + AES_NONCE_LEN
+    if len(payload) >= header_end + 16 and payload[:1] == _TOTP_WRAP_V2:
+        hkdf_salt = payload[1 : 1 + _TOTP_HKDF_SALT_LEN]
+        nonce = payload[1 + _TOTP_HKDF_SALT_LEN : header_end]
+        body = payload[header_end:]
+        derived_key = _derive_totp_wrap_key(master_key, user_id, hkdf_salt)
+    else:
+        nonce, body = payload[:AES_NONCE_LEN], payload[AES_NONCE_LEN:]
+        derived_key = _derive_totp_wrap_key(master_key, user_id, None)
+
+    cipher = AESGCM(derived_key)
     return cipher.decrypt(nonce, body, aad).decode()
+
 
 def update_user_totp(
     db: Session,

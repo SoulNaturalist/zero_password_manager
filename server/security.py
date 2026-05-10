@@ -61,8 +61,8 @@ BRUTE_FORCE_PROTECTION = {
 
 _pwd_context = CryptContext(
     schemes=["argon2"],
-    deprecated="auto",
-    **SECURITY_PARAMS["ARGON2"]
+    deprecated=[],  # Argon2-only; no PBKDF2/bcrypt verification paths
+    **SECURITY_PARAMS["ARGON2"],
 )
 
 REQUIRED_CLAIMS: Set[str] = {"sub", "jti", "iat", "exp", "type"}

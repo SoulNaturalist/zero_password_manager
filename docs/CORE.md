@@ -10,7 +10,8 @@ The server never sees the master key, plaintext passwords, or any metadata that 
 ### 1. Zero-Knowledge & Key Derivation (client-side only)
 All cryptographic operations happen **exclusively on the device**:
 
-- **KDF**: Argon2id (default) with PBKDF2-SHA256 fallback (100,000+ iterations).
+- **Vault KDF (device)**: PBKDF2-HMAC-SHA256 — default **600,000** iterations (OWASP-aligned); legacy **100,000** with transparent upgrade on next unlock.
+- **Login password hash (server)**: Argon2id only (`server/security.py`).
 - **Salt**: 16-byte cryptographically secure random salt generated once during registration.
 - **Derived keys**:
   - `master_key` — used for AES-256-GCM encryption of the entire vault.

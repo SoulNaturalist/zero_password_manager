@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:safe_device/safe_device.dart';
@@ -45,7 +46,7 @@ class _SplashScreenState extends State<SplashScreen> {
         isCompromised = true;
       }
     } catch (e) {
-      debugPrint("Security check error: $e");
+      if (kDebugMode) debugPrint('Security check error: $e');
     }
 
     if (!mounted) return;

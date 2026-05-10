@@ -1,4 +1,5 @@
 import base64
+import json
 import secrets
 import string
 import time
@@ -59,6 +60,48 @@ def validate_base64(data: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _b64url_decode_strict(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+def _normalized_webauthn_challenge_b64url(challenge_b64url: Optional[str]) -> Optional[str]:
+    if not challenge_b64url or not isinstance(challenge_b64url, str):
+        return None
+    return challenge_b64url.strip().rstrip("=")
+
+
+def _challenge_from_public_key_credential_client_data(client_data_json_b64: Optional[str]) -> Optional[str]:
+    """Return base64url challenge string from WebAuthn clientDataJSON (unpadded-normalized)."""
+    if not client_data_json_b64 or not isinstance(client_data_json_b64, str):
+        return None
+    try:
+        raw = _b64url_decode_strict(client_data_json_b64)
+        parsed = json.loads(raw.decode("utf-8"))
+        ch = parsed.get("challenge")
+        if not isinstance(ch, str):
+            return None
+        return _normalized_webauthn_challenge_b64url(ch)
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+
+
+def _webauthn_stored_challenge_lookup_key(credential: dict) -> Optional[str]:
+    """
+    Map a browser/WebAuthn credential dict to the DB challenge primary key.
+    The challenge lives inside clientDataJSON, not as a top-level field (older
+    code incorrectly used .get('challenge'), which is always None).
+    """
+    if not isinstance(credential, dict):
+        return None
+    cdj = credential.get("clientDataJSON")
+    if cdj is None:
+        nested = credential.get("response")
+        if isinstance(nested, dict):
+            cdj = nested.get("clientDataJSON")
+    return _challenge_from_public_key_credential_client_data(cdj)
 
 
 def _require_strict_totp(request: Request, current_user: models.User, db: Session) -> None:
@@ -816,13 +859,17 @@ async def webauthn_register_options(
 async def webauthn_register_verify(
     request: Request,
     verify_data: schemas.WebAuthnRegistrationVerify,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth_deps.get_current_user),
     db: Session = Depends(get_db)
 ):
     rp_id = _get_webauthn_rp_id()
     expected_origin = _get_webauthn_origin(request)
 
-    challenge_data = crud.get_challenge(db, verify_data.registration_response.get("challenge"))
+    challenge_pk = _webauthn_stored_challenge_lookup_key(verify_data.registration_response)
+    if not challenge_pk:
+        raise HTTPException(status_code=400, detail="Invalid challenge")
+    challenge_data = crud.get_challenge(db, challenge_pk)
     if not challenge_data or challenge_data.type != "registration":
         raise HTTPException(status_code=400, detail="Invalid challenge")
     
@@ -831,10 +878,9 @@ async def webauthn_register_verify(
         raise HTTPException(status_code=400, detail="Challenge expired")
     
     try:
-        import base64
         verification = verify_registration_response(
             credential=verify_data.registration_response,
-            expected_challenge=base64.urlsafe_b64decode(challenge_data.challenge + "=="),
+            expected_challenge=_b64url_decode_strict(challenge_data.challenge),
             expected_origin=expected_origin,
             expected_rp_id=rp_id,
             require_user_verification=True,
@@ -893,14 +939,18 @@ async def webauthn_login_options(
 async def webauthn_login_verify(
     request: Request,
     verify_data: schemas.WebAuthnLoginVerify,
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     rp_id = _get_webauthn_rp_id()
     expected_origin = _get_webauthn_origin(request)
 
     common_error = HTTPException(status_code=400, detail="Authentication failed")
 
-    challenge_data = crud.get_challenge(db, verify_data.authentication_response.get("challenge"))
+    challenge_pk = _webauthn_stored_challenge_lookup_key(verify_data.authentication_response)
+    if not challenge_pk:
+        raise common_error
+    challenge_data = crud.get_challenge(db, challenge_pk)
     if not challenge_data or challenge_data.type != "authentication":
         raise common_error
     
@@ -924,10 +974,9 @@ async def webauthn_login_verify(
         )
     
     try:
-        import base64
         verification = verify_authentication_response(
             credential=verify_data.authentication_response,
-            expected_challenge=base64.urlsafe_b64decode(challenge_data.challenge + "=="),
+            expected_challenge=_b64url_decode_strict(challenge_data.challenge),
             expected_origin=expected_origin,
             expected_rp_id=rp_id,
             credential_public_key=db_credential.public_key,
