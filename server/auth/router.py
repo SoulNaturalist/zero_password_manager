@@ -63,6 +63,7 @@ from .service import (
 from ..config import settings
 from ..security import SecurityManager, SECURITY_PARAMS
 from ..schemas import PasswordResetRequest
+from .. import crud
 from functools import wraps
 import time
 
@@ -640,60 +641,57 @@ async def reset_password(
     request: Request,
     body: PasswordResetRequest,
     db: Session = Depends(get_db),
-):
-    """
-    Безопасный сброс пароля с защитой от enumeration и DoS.
-    
-    Ключевые исправления:
-    1. Правильная логика для пользователей без 2FA
-    2. Нет утечки информации о существовании пользователя
-    """
+): 
     start_time = time.time()
     ip_address = get_client_ip(request)
-    
-    # Получаем пользователя
+     
     user = get_user_by_login(db, login=body.login)
     user_exists = user is not None
-    
-    # Фейковые данные (params MUST match SECURITY_PARAMS["ARGON2"])
+
     from .service import FAKE_ARGON2_HASH
-    fake_hash = FAKE_ARGON2_HASH
     fake_totp_secret = "JBSWY3DPEHPK3PXP"
-    
-    # ВСЕГДА выполняем проверку TOTP (реальную или фейковую)
-    otp_valid = False
-    
+
+    proof_valid = False
+
+    totp_proof = (body.totp_code or "").strip()
+    current_plain = body.current_password or ""
+
     if user_exists:
-        # Для пользователей с включенной 2FA проверяем TOTP
         if user.totp_enabled:
             try:
-                verify_hardened_otp(db, user, body.totp_code, ip_address)
-                otp_valid = True
+                verify_hardened_otp(db, user, totp_proof or None, ip_address)
+                proof_valid = True
                 reset_otp_failure_counters(user, db)
             except Exception:
                 handle_failed_otp_attempt(db, user, ip_address)
         else:
-            # Для пользователей без 2FA TOTP не требуется
-            otp_valid = True
+            password_ok = verify_password(current_plain, user.hashed_password)
+            verify_password(current_plain if not password_ok else "constant-time-branch", FAKE_ARGON2_HASH)
+            proof_valid = password_ok
     else:
-        # Фейковая проверка TOTP
+        verify_password(current_plain, FAKE_ARGON2_HASH)
         try:
             fake_user = User(totp_secret=fake_totp_secret, totp_enabled=True)
-            verify_hardened_otp(db, fake_user, body.totp_code, ip_address)
-            # Не устанавливаем otp_valid = True, так как пользователь не существует
+            verify_hardened_otp(db, fake_user, totp_proof or None, ip_address)
         except Exception:
             pass
-    
-    # Определяем успешность операции
-    operation_success = user_exists and otp_valid
-    
-    # Обработка успешной операции
+
+    operation_success = bool(user_exists and proof_valid)
+
+    if operation_success and not crud.validate_password_strength(body.new_password):
+        constant_time_response(start_time)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Password too weak. Minimum 14 characters, including uppercase, "
+                "lowercase, digits, and special symbols."
+            ),
+        )
+
     if operation_success:
-        # Обновление пароля
         user.hashed_password = hash_password(body.new_password)
-        user.token_version += 1  # Инвалидируем старые токены
-        
-        # Отзыв всех refresh токенов
+        user.token_version += 1
+
         db.query(RefreshToken).filter(
             RefreshToken.user_id == user.id
         ).update({"revoked": True})
@@ -711,19 +709,17 @@ async def reset_password(
         log_security_event(db, user.id if user else None, "password_reset_failed", 
             {
                 "user_exists": user_exists,
-                "otp_valid": otp_valid,
+                "proof_valid": proof_valid,
                 "ip": ip_address
             }, ip_address)
-    
-    # КОНСТАНТНОЕ время ответа
+
     constant_time_response(start_time)
-    
-    # ВСЕГДА возвращаем одинаковый ответ для предотвращения enumeration
+
     return {"success": True}
 
 
 @router.post("/verify-totp", response_model=dict)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute") 
 async def verify_totp_for_seed(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -737,7 +733,7 @@ async def verify_totp_for_seed(
         raise HTTPException(status_code=400, detail="OTP code is required in X-OTP header")
 
     verify_hardened_otp(db, current_user, otp)
-    seed_access_token = create_short_token(current_user.id)
+    seed_access_token = create_short_token(current_user)
     constant_time_response(start_time)
     return {"seed_access_token": seed_access_token}
 

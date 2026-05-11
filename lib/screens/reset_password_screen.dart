@@ -51,6 +51,25 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
     setState(() => _isLoading = true);
 
     final values = _formKey.currentState!.value;
+
+    final totp = (values['totp_code'] as String?)?.trim() ?? '';
+    final currentPw = values['current_password'] as String? ?? '';
+
+    if (totp.length != 6 && currentPw.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: LText(
+            AppLocalizations.translateStandalone(
+              'Введите 6-значный код 2FA или текущий пароль (если 2FA не настроена).',
+            ),
+          ),
+        ),
+      );
+      _playErrorShake();
+      setState(() => _isLoading = false);
+      return;
+    }
     
     try {
       final response = await http.post(
@@ -61,7 +80,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
         },
         body: jsonEncode({
           'login': values['login'],
-          'totp_code': values['totp_code'],
+          if (totp.isNotEmpty) 'totp_code': totp,
+          if (currentPw.isNotEmpty) 'current_password': currentPw,
           'new_password': values['new_password'],
         }),
       );
@@ -145,24 +165,39 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                       FormBuilderTextField(
                         name: 'totp_code',
                         style: TextStyle(color: AppColors.text),
-                        decoration: _buildInputDecoration('TOTP код', Icons.shutter_speed_outlined),
+                        decoration: _buildInputDecoration(
+                          'Код из приложения 2FA',
+                          Icons.shutter_speed_outlined,
+                          subtitle: '(если 2FA включена)',
+                        ),
                         keyboardType: TextInputType.number,
-                        validator: FormBuilderValidators.compose([
-                          FormBuilderValidators.required(
-                            errorText: AppLocalizations.translateStandalone('Введите TOTP код'),
-                          ),
-                          FormBuilderValidators.numeric(
-                            errorText: AppLocalizations.translateStandalone('Только цифры'),
-                          ),
-                          FormBuilderValidators.minLength(
-                            6,
-                            errorText: AppLocalizations.translateStandalone('6 цифр'),
-                          ),
-                          FormBuilderValidators.maxLength(
-                            6,
-                            errorText: AppLocalizations.translateStandalone('6 цифр'),
-                          ),
-                        ]),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) return null;
+                          final v = value.trim();
+                          if (v.length != 6) {
+                            return AppLocalizations.translateStandalone('Должно быть 6 цифр');
+                          }
+                          if (!RegExp(r'^\d{6}$').hasMatch(v)) {
+                            return AppLocalizations.translateStandalone('Только цифры');
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      FormBuilderTextField(
+                        name: 'current_password',
+                        obscureText: true,
+                        style: TextStyle(color: AppColors.text),
+                        decoration: _buildInputDecoration(
+                          'Текущий пароль',
+                          Icons.lock_clock_outlined,
+                          subtitle: '(если 2FA не настроена)',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) return null;
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
 
@@ -263,9 +298,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
     );
   }
 
-  InputDecoration _buildInputDecoration(String hint, IconData icon) {
+  InputDecoration _buildInputDecoration(String hint, IconData icon, {String? subtitle}) {
     return InputDecoration(
-      hintText: hint,
+      hintText: subtitle != null ? '$hint\n$subtitle' : hint,
       prefixIcon: Icon(icon, color: AppColors.button),
       filled: true,
       fillColor: AppColors.input,
