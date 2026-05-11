@@ -108,8 +108,9 @@ class ProfileUpdate(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     login: str
-    totp_code: str
     new_password: str
+    totp_code: Optional[str] = None
+    current_password: Optional[str] = None
 
 
 # ── WebAuthn Schemas ──────────────────────────────────────────────────────────
