@@ -723,7 +723,7 @@ async def reset_password(
 
 
 @router.post("/verify-totp", response_model=dict)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute") 
 async def verify_totp_for_seed(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -737,7 +737,7 @@ async def verify_totp_for_seed(
         raise HTTPException(status_code=400, detail="OTP code is required in X-OTP header")
 
     verify_hardened_otp(db, current_user, otp)
-    seed_access_token = create_short_token(current_user.id)
+    seed_access_token = create_short_token(current_user)
     constant_time_response(start_time)
     return {"seed_access_token": seed_access_token}
 

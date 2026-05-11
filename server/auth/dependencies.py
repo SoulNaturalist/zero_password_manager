@@ -16,40 +16,45 @@ _oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="login", auto_error=Fals
 _log = logging.getLogger(__name__)
 
 
-def _resolve_user_from_token(token: str, db: Session) -> User:
-    """Decode a Bearer JWT and return the corresponding User. Raises InvalidCredentials on any failure."""
+def _user_from_access_claims(payload: dict, db: Session) -> User: 
     from .. import crud  # local import — avoids circular module dependency
-
-    try:
-        payload = decode_token(token)
-    except Exception as exc:
-        _log.warning("resolve_user: decode_token failed — %s", exc)
-        raise InvalidCredentials()
 
     jti = payload.get("jti")
     if jti and crud.is_token_blacklisted(db, jti):
-        _log.warning("resolve_user: token jti=%s is blacklisted", jti)
+        _log.warning("access_claims: token jti=%s is blacklisted", jti)
         raise InvalidCredentials()
 
     user_id = payload.get("sub")
     if not user_id:
-        _log.warning("resolve_user: token missing 'sub' claim")
+        _log.warning("access_claims: missing 'sub' claim")
         raise InvalidCredentials()
 
     user = db.query(User).filter(User.id == int(user_id)).first()
     if not user:
-        _log.warning("resolve_user: user id=%s not found in DB", user_id)
+        _log.warning("access_claims: user id=%s not found in DB", user_id)
         raise InvalidCredentials()
 
     token_ver = payload.get("token_version")
     if token_ver != user.token_version:
         _log.warning(
-            "resolve_user: token_version mismatch — token=%r db=%r user_id=%s",
-            token_ver, user.token_version, user_id,
+            "access_claims: token_version mismatch — token=%r db=%r user_id=%s",
+            token_ver,
+            user.token_version,
+            user_id,
         )
         raise InvalidCredentials()
 
     return user
+
+
+def _resolve_user_from_token(token: str, db: Session) -> User: 
+    try:
+        payload = decode_token(token)
+    except Exception as exc:
+        _log.warning("resolve_user: decode_token failed — %s", exc)
+        raise InvalidCredentials() 
+
+    return _user_from_access_claims(payload, db)
 
 
 def get_current_user(
@@ -83,15 +88,7 @@ def get_seed_access_user(
             detail="Valid TOTP verification required"
         )
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise InvalidCredentials()
-
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user:
-        raise InvalidCredentials()
-
-    return user
+    return _user_from_access_claims(payload, db)
 
 
 def require_otp_for(permission: str) -> Callable:
