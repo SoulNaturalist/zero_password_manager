@@ -172,14 +172,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     final salt = data['salt'];
     if (salt != null) {
       // Defer vault unlock until the user passes local PIN verification.
+      // Store password in encrypted secure storage, NOT in memory (_pendingPasswordBytes).
       final kdfIterations = data['kdf_iterations'] as int?;
-      VaultService().stagePasswordUnlock(
+      await VaultService().stagePasswordUnlockSecure(
         password,
         salt,
         kdfIterations: kdfIterations,
       );
     } else {
-      VaultService().clearPendingPasswordUnlock();
+      await VaultService().clearPendingPasswordUnlockSecure();
     }
 
     if (!mounted) return;

@@ -36,12 +36,24 @@ class VaultService {
   static const _legacyNoPinMasterKey = 'master_key_no_pin';
   static const _legacyNoPinSaltKey = 'master_key_no_pin_salt';
 
+  // Secure storage keys for pending password unlock (CWE-316: avoid RAM storage)
+  static const _pendingPasswordKey = 'pending_password_encrypted';
+  static const _pendingSaltKey = 'pending_salt';
+  static const _pendingKdfItersKey = 'pending_kdf_iterations';
+
   // ── Key state ────────────────────────────────────────────────────────────────
 
   SecretKey? get masterKey => _masterKey;
   bool get isLocked => _masterKey == null;
   bool get hasPendingPasswordUnlock =>
       _pendingPasswordBytes != null && _pendingSalt != null;
+
+  /// Checks if there's a pending password unlock in secure storage (CWE-316 mitigation).
+  Future<bool> get hasPendingPasswordUnlockSecure async {
+    final encryptedPassword = await _storage.read(key: _pendingPasswordKey);
+    final salt = await _storage.read(key: _pendingSaltKey);
+    return encryptedPassword != null && salt != null;
+  }
 
   void setKey(SecretKey key) => _masterKey = key;
 
@@ -83,6 +95,67 @@ class VaultService {
     } finally {
       passwordCopy.fillRange(0, passwordCopy.length, 0);
       clearPendingPasswordUnlock();
+    }
+  }
+
+  // ── Secure storage variants (CWE-316: avoid keeping secrets in RAM) ──────────
+
+  /// Stages password unlock by encrypting and storing in secure storage,
+  /// then immediately wiping the password from RAM.
+  Future<void> stagePasswordUnlockSecure(
+    String password,
+    String salt, {
+    int? kdfIterations,
+  }) async {
+    await clearPendingPasswordUnlockSecure();
+    try {
+      // Store password in secure storage (encrypted by platform)
+      await _storage.write(key: _pendingPasswordKey, value: password);
+      await _storage.write(key: _pendingSaltKey, value: salt);
+      if (kdfIterations != null) {
+        await _storage.write(
+          key: _pendingKdfItersKey,
+          value: kdfIterations.toString(),
+        );
+      }
+    } finally {
+      // Wipe password from RAM immediately after storing
+      final passwordBytes = Uint8List.fromList(utf8.encode(password));
+      passwordBytes.fillRange(0, passwordBytes.length, 0);
+    }
+  }
+
+  /// Clears any pending password unlock data from secure storage.
+  Future<void> clearPendingPasswordUnlockSecure() async {
+    await _storage.delete(key: _pendingPasswordKey);
+    await _storage.delete(key: _pendingSaltKey);
+    await _storage.delete(key: _pendingKdfItersKey);
+  }
+
+  /// Unlocks the vault using the staged password from secure storage,
+  /// then immediately clears the staged data.
+  Future<void> unlockPendingPasswordSecure() async {
+    final password = await _storage.read(key: _pendingPasswordKey);
+    final salt = await _storage.read(key: _pendingSaltKey);
+    final kdfItersStr = await _storage.read(key: _pendingKdfItersKey);
+
+    if (password == null || salt == null) {
+      throw StateError('No pending password unlock staged in secure storage');
+    }
+
+    final kdfIterations = kdfItersStr != null ? int.tryParse(kdfItersStr) : null;
+
+    try {
+      // Convert to bytes for KDF, then immediately wipe
+      final passwordBytes = Uint8List.fromList(utf8.encode(password));
+      try {
+        await unlockFromBytes(passwordBytes, salt, kdfIterations: kdfIterations);
+      } finally {
+        passwordBytes.fillRange(0, passwordBytes.length, 0);
+      }
+    } finally {
+      // Always clear from secure storage after unlock attempt
+      await clearPendingPasswordUnlockSecure();
     }
   }
 

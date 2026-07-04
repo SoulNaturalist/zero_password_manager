@@ -220,8 +220,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
         // Reset attempt counter on success
         await PinSecurity.resetAttempts();
 
-        if (VaultService().hasPendingPasswordUnlock) {
-          await VaultService().unlockPendingPassword();
+        // Check for pending unlock in secure storage first (CWE-316 mitigation)
+        final hasPendingSecure = await VaultService().hasPendingPasswordUnlockSecure;
+        if (hasPendingSecure) {
+          await VaultService().unlockPendingPasswordSecure();
           await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
         } else if (VaultService().isLocked) {
           await VaultService().unlockWithPinBytes(_pinBytes);

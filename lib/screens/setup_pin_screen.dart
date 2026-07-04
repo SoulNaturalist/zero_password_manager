@@ -141,7 +141,11 @@ class _SetupPinScreenState extends State<SetupPinScreen>
       await PinSecurity.storePinHash(_pinBytes);
 
       // 2. Finalize deferred login unlock only after successful PIN setup.
-      if (VaultService().hasPendingPasswordUnlock) {
+      // Check secure storage first (CWE-316 mitigation), then fallback to legacy RAM method.
+      final hasPendingSecure = await VaultService().hasPendingPasswordUnlockSecure;
+      if (hasPendingSecure) {
+        await VaultService().unlockPendingPasswordSecure();
+      } else if (VaultService().hasPendingPasswordUnlock) {
         await VaultService().unlockPendingPassword();
       }
 

@@ -158,8 +158,9 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
         );
 
         if (setupData != null && setupData is Map<String, dynamic>) {
-          // 3. Save Master Key to session (VaultService) after successful 2FA setup
-          await VaultService.saveMasterKey(masterKey);
+          // 3. Stage password for deferred vault unlock after PIN setup.
+          // Store in encrypted secure storage, NOT in RAM - CWE-316 mitigation.
+          await VaultService().stagePasswordUnlockSecure(password, salt);
 
           await AuthTokenStorage.writeAccessToken(setupData['access_token'] as String);
           WsService().init();
