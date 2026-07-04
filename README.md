@@ -475,6 +475,30 @@ Please check [open Issues](https://github.com/SoulNaturalist/zero_password_manag
 
 ---
 
+
+## 🤝 Contributors
+
+A huge thanks to the incredible people who helped improve this project:
+
+<table>
+  <tr>
+    <td align="center" valign="middle">
+      <a href="https://github.com/whoissoee">
+        <img src="https://avatars.githubusercontent.com/u/168337722?v=4" width="50" height="50" alt="Alexander" style="max-width: 100%; display: block;"/>
+      </a>
+    </td>
+    <td valign="middle">
+      <strong><a href="https://github.com/whoissoee">Alexander (whoissoee)</a></strong><br/>
+      <sub>Security Engineer</sub>
+    </td>
+    <td valign="middle">
+      Refactored the authentication system and fixed critical security vulnerabilities.
+    </td>
+  </tr>
+</table>
+
+
+
 ## 📜 License
 
 Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
@@ -512,6 +536,7 @@ If you need a commercial license, open an issue to discuss.
 If this project is useful to you, consider giving it a ⭐ — it helps others find it.
 
 <br>
+
 
 ---
 
