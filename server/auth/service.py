@@ -96,13 +96,14 @@ def create_access_token(user: User, device_id: str) -> str:
     }
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
-def create_short_token(user_id: int) -> str:
+def create_short_token(user: User) -> str:
     """Create a short-lived token for sensitive operations like seed phrase access."""
     now = int(time.time())
     payload = {
-        "sub": str(user_id),
+        "sub": str(user.id),
         "type": "access",
         "jti": secrets.token_hex(16),
+        "token_version": user.token_version,
         "scope": "seed_access",
         "iat": now,
         "exp": now + 60,
