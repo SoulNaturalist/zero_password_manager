@@ -13,6 +13,7 @@ every push to `main` — do not edit it by hand.
 ### 🐛 Bug Fixes
 
 - Unlock pin logic
+- Unlock pin logic
 - **`flutter`** — Resolve settings_screen syntax and API compatibility build breaks
 - Landing localization
 - Biometrics bugs
