@@ -85,6 +85,7 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
   Future<void> _checkInitialState() async {
     await _checkLockout();
     final hasPin = await PinSecurity.hasPinHash();
+    final pendingPasswordUnlock = VaultService().hasPendingPasswordUnlock;
     final biometric = BiometricService();
     final bioAvailable = await biometric.isAvailable();
     final bioEnabled = await biometric.isBiometricEnabled();
@@ -94,12 +95,15 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
         _hasPinHash = hasPin;
         _biometricAvailable = bioAvailable;
         _biometricEnabled = bioEnabled;
-        // If bio is available and enabled, don't show PIN input by default
-        _showPinInput = !bioEnabled || !bioAvailable || !hasPin;
+        // A pending post-login unlock must be finalized strictly via PIN.
+        _showPinInput =
+            pendingPasswordUnlock || !bioEnabled || !bioAvailable || !hasPin;
       });
     }
 
-    if (bioAvailable && bioEnabled) {
+    if (pendingPasswordUnlock && hasPin && !_isLocked) {
+      _pinFocusNode.requestFocus();
+    } else if (bioAvailable && bioEnabled) {
       _authenticateWithBiometrics();
     } else if (hasPin && !_isLocked) {
       _pinFocusNode.requestFocus();
@@ -216,8 +220,10 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
         // Reset attempt counter on success
         await PinSecurity.resetAttempts();
 
-        // Unlock vault directly with bytes — no String creation (CWE-256)
-        if (VaultService().isLocked) {
+        if (VaultService().hasPendingPasswordUnlock) {
+          await VaultService().unlockPendingPassword();
+          await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
+        } else if (VaultService().isLocked) {
           await VaultService().unlockWithPinBytes(_pinBytes);
         } else {
           await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
@@ -313,6 +319,17 @@ class _PinScreenState extends State<PinScreen> with TickerProviderStateMixin {
 
   Future<void> _authenticateWithBiometrics() async {
     try {
+      if (VaultService().hasPendingPasswordUnlock) {
+        if (mounted) {
+          setState(() {
+            _showPinInput = true;
+            _errorMessage = 'Для завершения входа введите PIN-код';
+          });
+          _pinFocusNode.requestFocus();
+        }
+        return;
+      }
+
       final success = await VaultService().tryUnlockWithBiometrics();
       if (success) {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);

@@ -171,11 +171,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
     final salt = data['salt'];
     if (salt != null) {
-      // Server returns kdf_iterations alongside salt for new accounts.
-      // Legacy accounts pre-migration return null → unlock() falls back to
-      // CryptoService.legacyKdfIterations (100 000) for backwards compat.
+      // Defer vault unlock until the user passes local PIN verification.
       final kdfIterations = data['kdf_iterations'] as int?;
-      await VaultService().unlock(password, salt, kdfIterations: kdfIterations);
+      VaultService().stagePasswordUnlock(
+        password,
+        salt,
+        kdfIterations: kdfIterations,
+      );
+    } else {
+      VaultService().clearPendingPasswordUnlock();
     }
 
     if (!mounted) return;

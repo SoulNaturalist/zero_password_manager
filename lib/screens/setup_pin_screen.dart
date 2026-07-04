@@ -140,13 +140,18 @@ class _SetupPinScreenState extends State<SetupPinScreen>
       // 1. Store PBKDF2 hash in FlutterSecureStorage (CWE-922 + CWE-327)
       await PinSecurity.storePinHash(_pinBytes);
 
-      // 2. Encrypt master key with PIN bytes — no String creation (CWE-256)
+      // 2. Finalize deferred login unlock only after successful PIN setup.
+      if (VaultService().hasPendingPasswordUnlock) {
+        await VaultService().unlockPendingPassword();
+      }
+
+      // 3. Encrypt master key with PIN bytes — no String creation (CWE-256)
       await VaultService().storeMasterKeyWithPinBytes(_pinBytes);
 
-      // 3. Remove no-PIN key if it existed (user now has a PIN).
+      // 4. Remove no-PIN key if it existed (user now has a PIN).
       await VaultService().clearNoPinMasterKey();
 
-      // 3. Zero PIN bytes after all operations
+      // 5. Zero PIN bytes after all operations
       _pinBytes.fillRange(0, _pinBytes.length, 0);
       _pinBytes = Uint8List(0);
 

@@ -18,6 +18,9 @@ class VaultService {
   VaultService._internal();
 
   SecretKey? _masterKey;
+  Uint8List? _pendingPasswordBytes;
+  String? _pendingSalt;
+  int? _pendingKdfIterations;
   final _crypto = CryptoService();
   final _cache  = CacheService();
   final _storage = const FlutterSecureStorage(
@@ -37,12 +40,50 @@ class VaultService {
 
   SecretKey? get masterKey => _masterKey;
   bool get isLocked => _masterKey == null;
+  bool get hasPendingPasswordUnlock =>
+      _pendingPasswordBytes != null && _pendingSalt != null;
 
   void setKey(SecretKey key) => _masterKey = key;
 
   void lock() {
     _masterKey = null;
+    clearPendingPasswordUnlock();
     _cache.clearCache();
+  }
+
+  void stagePasswordUnlock(
+    String password,
+    String salt, {
+    int? kdfIterations,
+  }) {
+    clearPendingPasswordUnlock();
+    _pendingPasswordBytes = Uint8List.fromList(utf8.encode(password));
+    _pendingSalt = salt;
+    _pendingKdfIterations = kdfIterations;
+  }
+
+  void clearPendingPasswordUnlock() {
+    _pendingPasswordBytes?.fillRange(0, _pendingPasswordBytes!.length, 0);
+    _pendingPasswordBytes = null;
+    _pendingSalt = null;
+    _pendingKdfIterations = null;
+  }
+
+  Future<void> unlockPendingPassword() async {
+    final passwordBytes = _pendingPasswordBytes;
+    final salt = _pendingSalt;
+    final kdfIterations = _pendingKdfIterations;
+    if (passwordBytes == null || salt == null) {
+      throw StateError('No pending password unlock staged');
+    }
+
+    final passwordCopy = Uint8List.fromList(passwordBytes);
+    try {
+      await unlockFromBytes(passwordCopy, salt, kdfIterations: kdfIterations);
+    } finally {
+      passwordCopy.fillRange(0, passwordCopy.length, 0);
+      clearPendingPasswordUnlock();
+    }
   }
 
   // ── Static helpers (kept for compatibility with login screens) ───────────────
@@ -250,6 +291,7 @@ class VaultService {
 
   Future<void> clearAllData() async {
     lock();
+    clearPendingPasswordUnlock();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('pin_hash');
